@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "AllBot - Session Auto Sync",
+  "version": "1.0.0",
+  "description": "Otomatis ambil dan sinkronkan sesi Claude Pro dan Gemini Advanced ke server AllBot VPS Anda.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AllBot Session Sync"
+  },
+  "permissions": [
+    "cookies",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://*.google.com/*",
+    "https://gemini.google.com/*",
+    "http://*/*",
+    "https://*/*"
+  ]
+}
