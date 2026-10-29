@@ -24,7 +24,19 @@ export function getDeviceName(): string {
 }
 
 export function initSocket(licenseKey: string = 'ALLBOT-CORP-DEV-2026'): Socket {
-  if (socket) return socket;
+  const token = localStorage.getItem('allbot_auth_token') || '';
+
+  if (socket) {
+    if (socket.connected) return socket;
+    socket.auth = {
+      licenseKey,
+      deviceId: getDeviceId(),
+      deviceName: getDeviceName(),
+      token,
+    };
+    socket.connect();
+    return socket;
+  }
 
   const deviceId = getDeviceId();
   const deviceName = getDeviceName();
@@ -34,6 +46,7 @@ export function initSocket(licenseKey: string = 'ALLBOT-CORP-DEV-2026'): Socket 
       licenseKey,
       deviceId,
       deviceName,
+      token,
     },
     transports: ['websocket', 'polling'],
   });
@@ -54,6 +67,13 @@ export function initSocket(licenseKey: string = 'ALLBOT-CORP-DEV-2026'): Socket 
   }, 30000);
 
   return socket;
+}
+
+export function disconnectSocket() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
 }
 
 export function getSocket(): Socket | null {

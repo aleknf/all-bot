@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import { Server, Socket } from "socket.io";
 import { prisma } from "./db.js";
 import { generateAgentReply } from "./ai.js";
+import { createAuthToken, verifyAuthToken, verifyPassword, hashPassword } from "./auth.js";
 
 dotenv.config();
 
@@ -18,6 +19,23 @@ const server = http.createServer(app);
 
 app.use(cors({ origin: "*" }));
 app.use(express.json());
+
+// Auth Middleware untuk melindungi API REST
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "UNAUTHORIZED: Anda harus login terlebih dahulu" });
+  }
+
+  const token = authHeader.split(" ")[1];
+  const payload = verifyAuthToken(token);
+  if (!payload) {
+    return res.status(401).json({ error: "UNAUTHORIZED: Sesi login kedaluwarsa atau tidak valid" });
+  }
+
+  (req as any).user = payload;
+  next();
+}
 
 // Serve static frontend build (Production mode)
 const clientDist = process.env.CLIENT_DIST_PATH || path.resolve(__dirname, "../../client/dist");
@@ -31,7 +49,16 @@ const io = new Server(server, {
 // 1. WEBSOCKET LICENSE & SEAT CHECK MIDDLEWARE
 // ----------------------------------------------------
 io.use(async (socket: Socket, next) => {
-  const { licenseKey, deviceId, deviceName } = socket.handshake.auth;
+  const { licenseKey, deviceId, deviceName, token } = socket.handshake.auth;
+
+  // Verifikasi login pengguna
+  if (!token) {
+    return next(new Error("AUTH_REQUIRED: Token login wajib disertakan"));
+  }
+  const authPayload = verifyAuthToken(token);
+  if (!authPayload) {
+    return next(new Error("AUTH_EXPIRED: Sesi login tidak valid atau kedaluwarsa"));
+  }
 
   const keyToUse = licenseKey || process.env.DEFAULT_LICENSE_KEY || "ALLBOT-CORP-DEV-2026";
   const clientDeviceId = deviceId || "device-anon-" + Math.random().toString(36).slice(2, 8);
@@ -240,8 +267,83 @@ io.on("connection", (socket: Socket) => {
 // 3. REST API ENDPOINTS
 // ----------------------------------------------------
 
+// AUTH: Login
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email dan password wajib diisi" });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: email.trim().toLowerCase() },
+    });
+
+    if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+      return res.status(401).json({ error: "Email atau password yang Anda masukkan salah" });
+    }
+
+    const token = createAuthToken(user.id, user.email);
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Gagal memproses login" });
+  }
+});
+
+// AUTH: Cek Profil Sesi
+app.get("/api/auth/me", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: "User tidak ditemukan" });
+
+    res.json({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Gagal mengambil data user" });
+  }
+});
+
+// AUTH: Ganti Password
+app.post("/api/auth/change-password", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as any).user.userId;
+    const { oldPassword, newPassword } = req.body;
+
+    if (!oldPassword || !newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: "Password baru minimal 6 karakter" });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.passwordHash || !verifyPassword(oldPassword, user.passwordHash)) {
+      return res.status(401).json({ error: "Password lama tidak sesuai" });
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: hashPassword(newPassword) },
+    });
+
+    res.json({ success: true, message: "Password berhasil diperbarui" });
+  } catch (error) {
+    res.status(500).json({ error: "Gagal mengganti password" });
+  }
+});
+
 // Status Lisensi & Seat Device
-app.get("/api/license", async (req, res) => {
+app.get("/api/license", requireAuth, async (req, res) => {
   try {
     const licenseKey = (req.query.key as string) || process.env.DEFAULT_LICENSE_KEY || "ALLBOT-CORP-DEV-2026";
     const license = await prisma.workspaceLicense.findUnique({
@@ -285,7 +387,7 @@ app.get("/api/license", async (req, res) => {
 });
 
 // Update Akun Web Subscription (Cookie) & API Keys
-app.post("/api/license/credentials", async (req, res) => {
+app.post("/api/license/credentials", requireAuth, async (req, res) => {
   try {
     const { claudeSessionKey, geminiSecure1PSID, geminiSecure1PSIDTS, geminiApiKey, openaiApiKey } = req.body;
     const license = await prisma.workspaceLicense.findFirst();
@@ -310,10 +412,11 @@ app.post("/api/license/credentials", async (req, res) => {
 });
 
 // Revoke Device Seat (Kick device)
-app.delete("/api/devices/:id", async (req, res) => {
+app.delete("/api/devices/:id", requireAuth, async (req, res) => {
   try {
+    const deviceId = req.params.id as string;
     const device = await prisma.deviceSession.delete({
-      where: { id: req.params.id },
+      where: { id: deviceId },
     });
 
     // Beritahu socket server jika device tersebut online agar disconnect
@@ -326,7 +429,7 @@ app.delete("/api/devices/:id", async (req, res) => {
 });
 
 // CRUD Agents
-app.get("/api/agents", async (req, res) => {
+app.get("/api/agents", requireAuth, async (req, res) => {
   try {
     const agents = await prisma.agent.findMany({
       orderBy: { createdAt: "asc" },
@@ -340,7 +443,7 @@ app.get("/api/agents", async (req, res) => {
   }
 });
 
-app.post("/api/agents", async (req, res) => {
+app.post("/api/agents", requireAuth, async (req, res) => {
   try {
     const { name, systemPrompt, model, temperature, description } = req.body;
     const license = await prisma.workspaceLicense.findFirst();
@@ -363,11 +466,12 @@ app.post("/api/agents", async (req, res) => {
   }
 });
 
-app.put("/api/agents/:id", async (req, res) => {
+app.put("/api/agents/:id", requireAuth, async (req, res) => {
   try {
+    const agentId = req.params.id as string;
     const { name, systemPrompt, model, temperature, description, isActive } = req.body;
     const agent = await prisma.agent.update({
-      where: { id: req.params.id },
+      where: { id: agentId },
       data: {
         name,
         systemPrompt,
@@ -383,9 +487,10 @@ app.put("/api/agents/:id", async (req, res) => {
   }
 });
 
-app.delete("/api/agents/:id", async (req, res) => {
+app.delete("/api/agents/:id", requireAuth, async (req, res) => {
   try {
-    await prisma.agent.delete({ where: { id: req.params.id } });
+    const agentId = req.params.id as string;
+    await prisma.agent.delete({ where: { id: agentId } });
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: "Gagal menghapus agen" });
@@ -393,7 +498,7 @@ app.delete("/api/agents/:id", async (req, res) => {
 });
 
 // CRUD Channels
-app.get("/api/channels", async (req, res) => {
+app.get("/api/channels", requireAuth, async (req, res) => {
   try {
     const channels = await prisma.channel.findMany({
       orderBy: { createdAt: "asc" },
@@ -410,7 +515,7 @@ app.get("/api/channels", async (req, res) => {
   }
 });
 
-app.post("/api/channels", async (req, res) => {
+app.post("/api/channels", requireAuth, async (req, res) => {
   try {
     const { name, slug, description, type, autoReplyMode, agentIds } = req.body;
     const license = await prisma.workspaceLicense.findFirst();
@@ -441,10 +546,11 @@ app.post("/api/channels", async (req, res) => {
   }
 });
 
-app.get("/api/channels/:id/messages", async (req, res) => {
+app.get("/api/channels/:id/messages", requireAuth, async (req, res) => {
   try {
+    const channelId = req.params.id as string;
     const messages = await prisma.message.findMany({
-      where: { channelId: req.params.id },
+      where: { channelId },
       orderBy: { createdAt: "asc" },
       take: 100,
     });

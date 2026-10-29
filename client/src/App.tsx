@@ -5,9 +5,20 @@ import { ChatArea } from './components/ChatArea.js';
 import { AgentModal } from './components/AgentModal.js';
 import { ChannelModal } from './components/ChannelModal.js';
 import { LicenseModal } from './components/LicenseModal.js';
-import { initSocket, getDeviceId } from './socket.js';
+import { LoginScreen } from './components/LoginScreen.js';
+import { initSocket, getDeviceId, disconnectSocket } from './socket.js';
 
 export const App: React.FC = () => {
+  // Authentication State
+  const [token, setToken] = useState<string | null>(localStorage.getItem('allbot_auth_token'));
+  const [currentUser, setCurrentUser] = useState<any>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('allbot_user') || 'null');
+    } catch (e) {
+      return null;
+    }
+  });
+
   const [channels, setChannels] = useState<Channel[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [license, setLicense] = useState<WorkspaceLicense | null>(null);
@@ -23,8 +34,34 @@ export const App: React.FC = () => {
 
   const deviceId = getDeviceId();
 
-  // 1. Inisialisasi Data & Socket
+  const handleLogout = () => {
+    localStorage.removeItem('allbot_auth_token');
+    localStorage.removeItem('allbot_user');
+    setToken(null);
+    setCurrentUser(null);
+    disconnectSocket();
+  };
+
+  // Helper auth fetch
+  const authFetch = async (url: string, options: RequestInit = {}) => {
+    const currentToken = localStorage.getItem('allbot_auth_token');
+    const headers = {
+      ...options.headers,
+      Authorization: `Bearer ${currentToken}`,
+      'Content-Type': 'application/json',
+    };
+
+    const res = await fetch(url, { ...options, headers });
+    if (res.status === 401) {
+      handleLogout();
+    }
+    return res;
+  };
+
+  // 1. Inisialisasi Data & Socket setelah login
   useEffect(() => {
+    if (!token) return;
+
     fetchInitialData();
 
     const socket = initSocket();
@@ -32,7 +69,6 @@ export const App: React.FC = () => {
     // Event listener socket
     socket.on('new_message', (msg: Message) => {
       setMessages((prev) => {
-        // Hindari duplikasi pesan jika sudah ada
         if (prev.some((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
@@ -49,9 +85,15 @@ export const App: React.FC = () => {
     socket.on('device_revoked', (data: { deviceId: string }) => {
       if (data.deviceId === deviceId) {
         alert('Sesi perangkat ini telah diputuskan dari lisensi oleh admin.');
-        window.location.reload();
+        handleLogout();
       } else {
         fetchLicense();
+      }
+    });
+
+    socket.on('connect_error', (err) => {
+      if (err.message.includes('AUTH_')) {
+        handleLogout();
       }
     });
 
@@ -60,11 +102,11 @@ export const App: React.FC = () => {
       socket.off('agent_typing');
       socket.off('device_revoked');
     };
-  }, []);
+  }, [token]);
 
   // 2. Saat activeChannelId berubah, ambil riwayat pesan & join room
   useEffect(() => {
-    if (!activeChannelId) return;
+    if (!token || !activeChannelId) return;
 
     fetchMessages(activeChannelId);
 
@@ -74,14 +116,14 @@ export const App: React.FC = () => {
     return () => {
       socket.emit('leave_channel', activeChannelId);
     };
-  }, [activeChannelId]);
+  }, [activeChannelId, token]);
 
   const fetchInitialData = async () => {
     try {
       const [chRes, agRes, licRes] = await Promise.all([
-        fetch('/api/channels'),
-        fetch('/api/agents'),
-        fetch('/api/license'),
+        authFetch('/api/channels'),
+        authFetch('/api/agents'),
+        authFetch('/api/license'),
       ]);
 
       if (chRes.ok) {
@@ -108,14 +150,14 @@ export const App: React.FC = () => {
 
   const fetchLicense = async () => {
     try {
-      const res = await fetch('/api/license');
+      const res = await authFetch('/api/license');
       if (res.ok) setLicense(await res.json());
     } catch (e) {}
   };
 
   const fetchMessages = async (channelId: string) => {
     try {
-      const res = await fetch(`/api/channels/${channelId}/messages`);
+      const res = await authFetch(`/api/channels/${channelId}/messages`);
       if (res.ok) {
         setMessages(await res.json());
       }
@@ -130,16 +172,16 @@ export const App: React.FC = () => {
     socket.emit('send_message', {
       channelId: activeChannelId,
       content,
-      senderName: 'Alek (Browser)',
+      senderName: currentUser?.name || 'Alek',
+      userId: currentUser?.id,
     });
   };
 
   const handleSaveAgent = async (data: Partial<Agent>) => {
     try {
       if (editingAgent) {
-        const res = await fetch(`/api/agents/${editingAgent.id}`, {
+        const res = await authFetch(`/api/agents/${editingAgent.id}`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
         });
         if (res.ok) {
@@ -147,9 +189,8 @@ export const App: React.FC = () => {
           setAgents((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
         }
       } else {
-        const res = await fetch('/api/agents', {
+        const res = await authFetch('/api/agents', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
         });
         if (res.ok) {
@@ -165,7 +206,7 @@ export const App: React.FC = () => {
 
   const handleDeleteAgent = async (id: string) => {
     try {
-      const res = await fetch(`/api/agents/${id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/agents/${id}`, { method: 'DELETE' });
       if (res.ok) {
         setAgents((prev) => prev.filter((a) => a.id !== id));
         fetchInitialData();
@@ -177,9 +218,8 @@ export const App: React.FC = () => {
 
   const handleSaveChannel = async (data: Partial<Channel> & { agentIds?: string[] }) => {
     try {
-      const res = await fetch('/api/channels', {
+      const res = await authFetch('/api/channels', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
       if (res.ok) {
@@ -195,7 +235,7 @@ export const App: React.FC = () => {
 
   const handleRevokeDevice = async (id: string) => {
     try {
-      const res = await fetch(`/api/devices/${id}`, { method: 'DELETE' });
+      const res = await authFetch(`/api/devices/${id}`, { method: 'DELETE' });
       if (res.ok) {
         fetchLicense();
       }
@@ -203,6 +243,18 @@ export const App: React.FC = () => {
       console.error('Revoke device error:', e);
     }
   };
+
+  // JIKA BELUM LOGIN: Render Login Screen
+  if (!token) {
+    return (
+      <LoginScreen
+        onLoginSuccess={(tok, usr) => {
+          setToken(tok);
+          setCurrentUser(usr);
+        }}
+      />
+    );
+  }
 
   const activeChannel = channels.find((c) => c.id === activeChannelId) || null;
 
@@ -214,6 +266,7 @@ export const App: React.FC = () => {
         agents={agents}
         activeChannelId={activeChannelId}
         license={license}
+        currentUser={currentUser}
         onSelectChannel={(id) => setActiveChannelId(id)}
         onOpenCreateChannel={() => setIsChannelModalOpen(true)}
         onOpenCreateAgent={() => {
@@ -225,6 +278,7 @@ export const App: React.FC = () => {
           setEditingAgent(agent);
           setIsAgentModalOpen(true);
         }}
+        onLogout={handleLogout}
       />
 
       {/* CHAT MAIN AREA */}

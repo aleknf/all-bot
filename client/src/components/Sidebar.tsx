@@ -9,7 +9,9 @@ import {
   ShieldCheck, 
   Laptop, 
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -17,11 +19,13 @@ interface SidebarProps {
   agents: Agent[];
   activeChannelId: string | null;
   license: WorkspaceLicense | null;
+  currentUser?: { name: string; email: string; role: string } | null;
   onSelectChannel: (id: string) => void;
   onOpenCreateChannel: () => void;
   onOpenCreateAgent: () => void;
   onOpenLicenseModal: () => void;
   onEditAgent: (agent: Agent) => void;
+  onLogout?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -29,11 +33,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   agents,
   activeChannelId,
   license,
+  currentUser,
   onSelectChannel,
   onOpenCreateChannel,
   onOpenCreateAgent,
   onOpenLicenseModal,
   onEditAgent,
+  onLogout,
 }) => {
   return (
     <aside className="w-72 bg-slate-950 border-r border-slate-800 flex flex-col h-screen select-none">
@@ -148,8 +154,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Footer - License Seat Status */}
-      <div className="p-3 border-t border-slate-800 bg-slate-900/60">
+      {/* Footer - User Profile & License Status */}
+      <div className="p-3 border-t border-slate-800 bg-slate-900/60 space-y-2">
         <button
           onClick={onOpenLicenseModal}
           className="w-full bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-lg p-2.5 text-left transition flex items-center justify-between"
@@ -167,6 +173,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
         </button>
+
+        {currentUser && (
+          <div className="flex items-center justify-between px-2 pt-1 text-xs text-slate-400">
+            <div className="flex items-center space-x-2 truncate">
+              <div className="w-6 h-6 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300">
+                <UserIcon className="w-3.5 h-3.5" />
+              </div>
+              <div className="truncate">
+                <p className="text-xs font-medium text-slate-200 truncate">{currentUser.name}</p>
+                <p className="text-[10px] text-slate-500 truncate">{currentUser.email}</p>
+              </div>
+            </div>
+
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                title="Keluar dari Workspace"
+                className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </aside>
   );

@@ -53,6 +53,7 @@ model User {
   licenseId    String
   email        String           @unique
   name         String
+  passwordHash String?
   role         String           @default("MEMBER") // ADMIN, MEMBER, GUEST
   avatarUrl    String?
   createdAt    DateTime         @default(now())

@@ -1,9 +1,16 @@
 import { PrismaClient } from "@prisma/client";
+import crypto from "crypto";
 
 const prisma = new PrismaClient();
 
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+
 async function main() {
-  console.log("Seeding database via seed.mjs...");
+  console.log("Seeding database via seed.mjs with secure auth...");
 
   const license = await prisma.workspaceLicense.upsert({
     where: { licenseKey: "ALLBOT-CORP-DEV-2026" },
@@ -17,9 +24,24 @@ async function main() {
     },
   });
 
+  // Admin User dengan Password Default: AdminPassword2026!
+  await prisma.user.upsert({
+    where: { email: "admin@alek.internal" },
+    update: {
+      passwordHash: hashPassword("AdminPassword2026!"),
+    },
+    create: {
+      licenseId: license.id,
+      email: "admin@alek.internal",
+      name: "Alek (Admin)",
+      role: "ADMIN",
+      passwordHash: hashPassword("AdminPassword2026!"),
+    },
+  });
+
   const countAgents = await prisma.agent.count();
   if (countAgents > 0) {
-    console.log("Database already seeded with agents. Skipping.");
+    console.log("Database already seeded with agents and channels.");
     return;
   }
 
@@ -102,21 +124,11 @@ async function main() {
     data: {
       channelId: generalChannel.id,
       senderType: "SYSTEM",
-      content: "Selamat datang di AllBot Workspace di VPS! Semua perangkat Anda dapat terhubung secara real-time di channel ini.",
+      content: "Selamat datang di AllBot Workspace! Keamanan login telah aktif.",
     },
   });
 
-  await prisma.message.create({
-    data: {
-      channelId: generalChannel.id,
-      senderType: "AGENT",
-      agentId: generalBot.id,
-      senderName: generalBot.name,
-      content: "Halo! Saya AllBot General di server VPS Anda (76.13.210.181). Sistem siap digunakan dan disinkronkan ke seluruh perangkat.",
-    },
-  });
-
-  console.log("Database seeded successfully via seed.mjs!");
+  console.log("Database seeded successfully with auth!");
 }
 
 main()
