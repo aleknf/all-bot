@@ -75,26 +75,35 @@ export const LicenseModal: React.FC<LicenseModalProps> = ({
   const handleSaveCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingCreds(true);
+    const token = localStorage.getItem('allbot_auth_token');
+
     try {
       const res = await fetch('/api/license/credentials', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
-          claudeSessionKey: claudeSessionKey.includes('••') ? undefined : claudeSessionKey,
-          geminiSecure1PSID: geminiSecure1PSID.includes('••') ? undefined : geminiSecure1PSID,
-          geminiSecure1PSIDTS: geminiSecure1PSIDTS || undefined,
-          geminiApiKey: geminiApiKey.includes('••') ? undefined : geminiApiKey,
-          openaiApiKey: openaiApiKey.includes('••') ? undefined : openaiApiKey,
+          claudeSessionKey: claudeSessionKey.includes('••') ? undefined : claudeSessionKey.trim(),
+          geminiSecure1PSID: geminiSecure1PSID.includes('••') ? undefined : geminiSecure1PSID.trim(),
+          geminiSecure1PSIDTS: geminiSecure1PSIDTS.trim() || undefined,
+          geminiApiKey: geminiApiKey.includes('••') ? undefined : geminiApiKey.trim(),
+          openaiApiKey: openaiApiKey.includes('••') ? undefined : openaiApiKey.trim(),
         }),
       });
 
       if (res.ok) {
         setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 2500);
+        setTimeout(() => setSaveSuccess(false), 3000);
         onRefreshLicense?.();
+      } else {
+        const data = await res.json();
+        alert('Gagal menyimpan kredensial: ' + (data.error || res.statusText));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert('Terjadi kesalahan koneksi saat menyimpan.');
     } finally {
       setSavingCreds(false);
     }

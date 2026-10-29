@@ -1,6 +1,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
+import fs from "fs";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,10 +21,24 @@ export interface WebCredentials {
   openaiApiKey?: string | null;
 }
 
+// Helper untuk membersihkan nilai cookie yang disalin dari DevTools
+function cleanCookieValue(val: string, prefix?: string): string {
+  let v = val.trim();
+  if (prefix && v.startsWith(`${prefix}=`)) {
+    v = v.slice(prefix.length + 1).trim();
+  }
+  // Ambil hanya nilai utama sebelum titik koma jika user meng-copy seluruh header
+  if (v.includes(";")) {
+    v = v.split(";")[0].trim();
+  }
+  return v;
+}
+
 // ----------------------------------------------------
 // 1. CLAUDE.AI WEB SESSION CLIENT (Cookie sessionKey)
 // ----------------------------------------------------
-async function callClaudeWebSession(sessionKey: string, prompt: string, systemPrompt?: string): Promise<string> {
+async function callClaudeWebSession(rawSessionKey: string, prompt: string, systemPrompt?: string): Promise<string> {
+  const sessionKey = cleanCookieValue(rawSessionKey, "sessionKey");
   const fullPrompt = `${systemPrompt ? `[Instruksi Sistem: ${systemPrompt}]\n\n` : ""}${prompt}`;
 
   try {
@@ -38,7 +53,11 @@ async function callClaudeWebSession(sessionKey: string, prompt: string, systemPr
     });
 
     if (!orgRes.ok) {
-      throw new Error(`Gagal membaca organisasi Claude (${orgRes.status}). Kemungkinan sessionKey kedaluwarsa.`);
+      const errText = await orgRes.text().catch(() => "");
+      if (errText.includes("cf-turnstile") || errText.includes("challenge") || errText.includes("Just a moment") || orgRes.status === 403) {
+        throw new Error("Akses diblokir oleh Cloudflare Turnstile dari IP VPS. Cloudflare mendeteksi request dari datacenter.");
+      }
+      throw new Error(`Gagal membaca sesi Claude (${orgRes.status}). sessionKey tidak valid atau akun belum login.`);
     }
 
     const orgs = await orgRes.json();
@@ -86,7 +105,6 @@ async function callClaudeWebSession(sessionKey: string, prompt: string, systemPr
     }
 
     const text = await streamRes.text();
-    // Ekstrak pesan dari event stream (SSE)
     const lines = text.split("\n");
     let accumulated = "";
 
@@ -108,15 +126,19 @@ async function callClaudeWebSession(sessionKey: string, prompt: string, systemPr
     throw new Error("Respons streaming dari claude.ai kosong.");
   } catch (err: any) {
     console.error("[Claude Web Session Error]", err);
-    throw new Error(`[Claude Web Error]: ${err.message}`);
+    throw new Error(err.message || "Claude Web API gagal");
   }
 }
 
 // ----------------------------------------------------
-// 2. CLAUDE CLI BRIDGE (Menggunakan Login Claude Code Lokal)
+// 2. CLAUDE CLI BRIDGE (Khusus mesin lokal macOS jika terpasang)
 // ----------------------------------------------------
 async function callClaudeCli(prompt: string, systemPrompt?: string): Promise<string> {
   const claudeBinary = "/Users/aleknurfatman/.local/bin/claude";
+  if (!fs.existsSync(claudeBinary)) {
+    throw new Error("Claude CLI tidak terpasang di host ini.");
+  }
+
   const fullPrompt = `${systemPrompt ? `[Instruksi Sistem: ${systemPrompt}]\n\n` : ""}${prompt}`;
 
   try {
@@ -125,15 +147,16 @@ async function callClaudeCli(prompt: string, systemPrompt?: string): Promise<str
     });
     return stdout.trim();
   } catch (err: any) {
-    console.error("[Claude CLI Error]", err);
-    throw new Error(`[Claude CLI Bridge Error]: ${err.message}`);
+    throw new Error(`[Claude CLI Bridge]: ${err.message}`);
   }
 }
 
 // ----------------------------------------------------
 // 3. GEMINI.GOOGLE.COM WEB SESSION (Cookie 1PSID)
 // ----------------------------------------------------
-async function callGeminiWebSession(psid: string, psidts: string, prompt: string, systemPrompt?: string): Promise<string> {
+async function callGeminiWebSession(rawPsid: string, rawPsidts: string, prompt: string, systemPrompt?: string): Promise<string> {
+  const psid = cleanCookieValue(rawPsid, "__Secure-1PSID");
+  const psidts = rawPsidts ? cleanCookieValue(rawPsidts, "__Secure-1PSIDTS") : "";
   const cookieHeader = `__Secure-1PSID=${psid}; ${psidts ? `__Secure-1PSIDTS=${psidts};` : ""}`;
   const fullPrompt = `${systemPrompt ? `[Instruksi Sistem: ${systemPrompt}]\n\n` : ""}${prompt}`;
 
@@ -152,9 +175,9 @@ async function callGeminiWebSession(psid: string, psidts: string, prompt: string
     }
 
     const html = await pageRes.text();
-    const tokenMatch = html.match(/"SNlM0e":"([^"]+)"/);
+    const tokenMatch = html.match(/"SNlM0e":"([^"]+)"/) || html.match(/\["SNlM0e","([^"]+)"\]/);
     if (!tokenMatch || !tokenMatch[1]) {
-      throw new Error("Gagal mengekstrak SNlM0e auth token dari Gemini web. Cookie mungkin telah kedaluwarsa.");
+      throw new Error("Gagal mengekstrak auth token (SNlM0e) dari Gemini web. Cookie mungkin telah kedaluwarsa atau membutuhkan verifikasi login Google.");
     }
     const snlm0e = tokenMatch[1];
 
@@ -185,14 +208,11 @@ async function callGeminiWebSession(psid: string, psidts: string, prompt: string
 
     const rpcText = await rpcRes.text();
 
-    // Parse hasil jawaban dari response text Google
     const matchAnswer = rpcText.match(/\["rc_[^"]+","([^"]+)"\]/);
     if (matchAnswer && matchAnswer[1]) {
-      // Decode escaped unicode
       return matchAnswer[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
     }
 
-    // Fallback parser regex jika format berbeda
     const textBlocks = rpcText.match(/\[\["([^"\\]*(?:\\.[^"\\]*)*)"/g);
     if (textBlocks && textBlocks.length > 0) {
       const candidate = textBlocks[textBlocks.length - 1].replace('[[\\"', "").replace('"', "");
@@ -201,10 +221,10 @@ async function callGeminiWebSession(psid: string, psidts: string, prompt: string
       }
     }
 
-    throw new Error("Gagal membaca payload balasan dari gemini.google.com.");
+    throw new Error("Gagal mem-parsing balasan teks dari gemini.google.com.");
   } catch (err: any) {
     console.error("[Gemini Web Session Error]", err);
-    throw new Error(`[Gemini Web Error]: ${err.message}`);
+    throw new Error(err.message || "Gemini Web API gagal");
   }
 }
 
@@ -218,25 +238,28 @@ export async function generateAgentReply(
   creds?: WebCredentials
 ): Promise<string> {
   const modelName = agent.model.toLowerCase();
+  let lastError = "";
 
   // A. JIKA AGEN MENGGUNAKAN CLAUDE (Pro Web Subscription)
   if (modelName.includes("claude")) {
     const sessionKey = creds?.claudeSessionKey || process.env.CLAUDE_SESSION_KEY;
 
-    // 1. Coba Claude.ai Web Session jika sessionKey tersedia
     if (sessionKey) {
       try {
         return await callClaudeWebSession(sessionKey, userMessage, agent.systemPrompt);
       } catch (err: any) {
-        console.warn("[Claude Web Session Failed, trying CLI fallback]:", err.message);
+        lastError = `Claude Web Session: ${err.message}`;
+        console.warn("[Claude Web Session Failed]:", err.message);
       }
+    } else {
+      lastError = "Cookie sessionKey Claude Pro belum diisi di menu Pengaturan Lisensi.";
     }
 
-    // 2. Coba Claude Code CLI Bridge jika di Mac/Server lokal
+    // Coba Claude Code CLI Bridge jika di Mac lokal
     try {
       return await callClaudeCli(userMessage, agent.systemPrompt);
     } catch (cliErr: any) {
-      console.warn("[Claude CLI Fallback Failed]:", cliErr.message);
+      // Abaikan jika bukan mac
     }
   }
 
@@ -245,13 +268,15 @@ export async function generateAgentReply(
     const psid = creds?.geminiSecure1PSID || process.env.GEMINI_SECURE_1PSID;
     const psidts = creds?.geminiSecure1PSIDTS || process.env.GEMINI_SECURE_1PSIDTS || "";
 
-    // Coba Gemini Web Session jika cookie tersedia
     if (psid) {
       try {
         return await callGeminiWebSession(psid, psidts, userMessage, agent.systemPrompt);
       } catch (err: any) {
+        lastError = `Gemini Web Session: ${err.message}`;
         console.warn("[Gemini Web Session Failed]:", err.message);
       }
+    } else {
+      lastError = "Cookie __Secure-1PSID Gemini Advanced belum diisi di menu Pengaturan Lisensi.";
     }
 
     // Fallback ke Gemini API jika API Key tersedia
@@ -319,13 +344,15 @@ export async function generateAgentReply(
     }
   }
 
-  // D. SIMULASI FALLBACK JIKA BELUM ADA COOKIE/LOGIN
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  // D. RESPON DIAGNOSTIK JELAS JIKA GAGAL
   return (
     `**[${agent.name} (${agent.model})]**\n\n` +
-    `Saya menerima pesan Anda: "${userMessage}".\n\n` +
-    `> 🔐 **Status Akun Langganan Web:**\n` +
-    `> Belum terhubung dengan sesi web Gemini Advanced atau Claude Pro.\n` +
-    `> Anda bisa memasukkan **Cookie Sesi Web** Anda di menu **Pengaturan Lisensi & Kredensial** agar agen langsung menggunakan kuota akun berlangganan Anda tanpa biaya API.`
+    `⚠️ **Status Koneksi AI:**\n` +
+    `Tidak dapat menghasilkan balasan langsung. Penyebab:\n` +
+    `> \`${lastError || "Kredensial belum terpasang atau ditolak oleh provider web."}\`\n\n` +
+    `💡 **Solusi Cepat:**\n` +
+    `1. Buka menu **Pengaturan Lisensi & AI Provider** di pojok kiri bawah.\n` +
+    `2. Pastikan cookie **Claude \`sessionKey\`** atau **Gemini \`__Secure-1PSID\`** telah disimpan dan tombol **"Simpan Kredensial"** diklik.\n` +
+    `3. *(Rekomendasi)* Anda juga bisa memasukkan **Google AI Studio API Key** (100% gratis dari aistudio.google.com tanpa biaya) pada kolom API Key cadangan.`
   );
 }
