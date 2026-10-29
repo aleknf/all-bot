@@ -35,6 +35,7 @@ ENV NODE_ENV=production
 ENV PORT=4000
 ENV DATABASE_URL="file:/app/data/allbot.db"
 ENV CLIENT_DIST_PATH="/app/client/dist"
+ENV NODE_OPTIONS="--max-http-header-size=128000"
 
 # Install openssl for Prisma runtime on Alpine
 RUN apk add --no-cache openssl
@@ -58,4 +59,4 @@ COPY --from=server-builder /app/server/dist ./dist
 EXPOSE 4000
 
 # Entrypoint: Sinkronkan database secara otomatis saat kontainer pertama kali start, lalu jalankan server
-CMD sh -c "npx prisma db push && ( [ ! -f /app/data/.seeded ] && npm run prisma:seed && touch /app/data/.seeded || true ) && node dist/index.js"
+CMD sh -c "npx prisma db push && ( [ ! -f /app/data/.seeded ] && npm run prisma:seed && touch /app/data/.seeded || true ) && node --max-http-header-size=128000 dist/index.js"

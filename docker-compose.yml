@@ -13,6 +13,7 @@ services:
       - PORT=4000
       - DATABASE_URL=file:/app/data/allbot.db
       - DEFAULT_LICENSE_KEY=ALLBOT-CORP-DEV-2026
+      - NODE_OPTIONS=--max-http-header-size=128000
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     volumes:

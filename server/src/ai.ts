@@ -73,6 +73,8 @@ async function callClaudeWebSession(rawSessionKey: string, prompt: string, syste
         "Content-Type": "application/json",
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        Origin: "https://claude.ai",
+        Referer: "https://claude.ai/chats",
       },
       body: JSON.stringify({ uuid: convUuid, name: "" }),
     });
@@ -81,49 +83,62 @@ async function callClaudeWebSession(rawSessionKey: string, prompt: string, syste
       throw new Error(`Gagal membuat percakapan claude.ai (${createConvRes.status})`);
     }
 
-    // 3. Kirim Prompt & Ambil Hasil Stream
-    const streamRes = await fetch(`https://claude.ai/api/organizations/${orgId}/chat_conversations/${convUuid}/completion`, {
-      method: "POST",
-      headers: {
-        Cookie: `sessionKey=${sessionKey}`,
-        "Content-Type": "application/json",
-        Accept: "text/event-stream",
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      },
-      body: JSON.stringify({
-        prompt: fullPrompt,
-        timezone: "Asia/Jakarta",
-        model: "claude-3-5-sonnet-20241022",
-        attachments: [],
-        files: [],
-      }),
-    });
+    // 3. Model yang didukung pada web claude.ai (claude-sonnet-5-5, claude-sonnet-5, claude-haiku-4-5-20251001)
+    const candidateModels = ["claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"];
+    let lastStreamError = "";
 
-    if (!streamRes.ok) {
-      throw new Error(`Gagal mengirim prompt ke claude.ai (${streamRes.status})`);
-    }
+    for (const modelToTry of candidateModels) {
+      const streamRes = await fetch(`https://claude.ai/api/organizations/${orgId}/chat_conversations/${convUuid}/completion`, {
+        method: "POST",
+        headers: {
+          Cookie: `sessionKey=${sessionKey}`,
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+          Origin: "https://claude.ai",
+          Referer: `https://claude.ai/chat/${convUuid}`,
+        },
+        body: JSON.stringify({
+          prompt: fullPrompt,
+          timezone: "Asia/Jakarta",
+          model: modelToTry,
+          attachments: [],
+          files: [],
+        }),
+      });
 
-    const text = await streamRes.text();
-    const lines = text.split("\n");
-    let accumulated = "";
+      if (streamRes.status === 429) {
+        throw new Error("Akun Claude Pro Anda sedang mencapai batas penggunaan (Rate Limited 429). Silakan tunggu beberapa menit.");
+      }
 
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const json = JSON.parse(line.replace("data: ", ""));
-          if (json.completion) {
-            accumulated += json.completion;
-          }
-        } catch (e) {}
+      if (!streamRes.ok) {
+        const errText = await streamRes.text().catch(() => "");
+        lastStreamError = `Model ${modelToTry} (${streamRes.status}): ${errText.slice(0, 100)}`;
+        continue;
+      }
+
+      const text = await streamRes.text();
+      const lines = text.split("\n");
+      let accumulated = "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const json = JSON.parse(line.replace("data: ", ""));
+            if (json.completion) {
+              accumulated += json.completion;
+            }
+          } catch (e) {}
+        }
+      }
+
+      if (accumulated.trim()) {
+        return accumulated.trim();
       }
     }
 
-    if (accumulated.trim()) {
-      return accumulated.trim();
-    }
-
-    throw new Error("Respons streaming dari claude.ai kosong.");
+    throw new Error(lastStreamError || "Respons streaming dari claude.ai kosong.");
   } catch (err: any) {
     console.error("[Claude Web Session Error]", err);
     throw new Error(err.message || "Claude Web API gagal");
@@ -208,17 +223,35 @@ async function callGeminiWebSession(rawPsid: string, rawPsidts: string, prompt: 
 
     const rpcText = await rpcRes.text();
 
-    const matchAnswer = rpcText.match(/\["rc_[^"]+","([^"]+)"\]/);
-    if (matchAnswer && matchAnswer[1]) {
-      return matchAnswer[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
+    // 3. Ekstraksi balasan teks dari RPC response (wrb.fr)
+    let answer = "";
+    const lines = rpcText.split("\n");
+    for (const line of lines) {
+      if (line.includes("wrb.fr")) {
+        try {
+          const cleaned = line.replace(/^\d+\s*/, "");
+          const parsed = JSON.parse(cleaned);
+          for (const item of parsed) {
+            if (item[0] === "wrb.fr" && item[2]) {
+              const nested = JSON.parse(item[2]);
+              const textCandidates = nested?.[4]?.[0]?.[1];
+              if (Array.isArray(textCandidates) && textCandidates[0]) {
+                answer = textCandidates[0];
+              }
+            }
+          }
+        } catch (e) {}
+      }
     }
 
-    const textBlocks = rpcText.match(/\[\["([^"\\]*(?:\\.[^"\\]*)*)"/g);
-    if (textBlocks && textBlocks.length > 0) {
-      const candidate = textBlocks[textBlocks.length - 1].replace('[[\\"', "").replace('"', "");
-      if (candidate.length > 20) {
-        return candidate.replace(/\\n/g, "\n").replace(/\\"/g, '"');
-      }
+    if (answer && answer.trim()) {
+      return answer.trim();
+    }
+
+    // Fallback regex jika format sedikit bergeser
+    const matchAnswer = rpcText.match(/\["rc_[^"]+",\["([^"]+)"\]/);
+    if (matchAnswer && matchAnswer[1]) {
+      return matchAnswer[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
     }
 
     throw new Error("Gagal mem-parsing balasan teks dari gemini.google.com.");
