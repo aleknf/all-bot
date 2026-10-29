@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Production builds
+client/dist/
+server/dist/
+
+# Environment & Secrets
+.env
+server/.env
+*.env
+*.env.local
+
+# SQLite Database
+server/prisma/dev.db
+server/prisma/dev.db-journal
+
+# OS & Logs
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -1,0 +1,113 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model WorkspaceLicense {
+  id               String          @id @default(uuid())
+  licenseKey       String          @unique
+  organizationName String
+  maxSeats         Int             @default(5)
+  maxAgents        Int             @default(10)
+  isActive         Boolean         @default(true)
+  expiresAt        DateTime?
+  createdAt        DateTime        @default(now())
+
+  devices          DeviceSession[]
+  users            User[]
+  agents           Agent[]
+  channels         Channel[]
+}
+
+model DeviceSession {
+  id           String           @id @default(uuid())
+  deviceId     String
+  licenseId    String
+  userId       String?
+  deviceName   String?
+  ipAddress    String?
+  lastActiveAt DateTime         @default(now())
+  createdAt    DateTime         @default(now())
+
+  license      WorkspaceLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  user         User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@unique([licenseId, deviceId])
+}
+
+model User {
+  id           String           @id @default(uuid())
+  licenseId    String
+  email        String           @unique
+  name         String
+  role         String           @default("MEMBER") // ADMIN, MEMBER, GUEST
+  avatarUrl    String?
+  createdAt    DateTime         @default(now())
+
+  license      WorkspaceLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  devices      DeviceSession[]
+  messages     Message[]
+}
+
+model Agent {
+  id           String           @id @default(uuid())
+  licenseId    String
+  name         String
+  avatarUrl    String?
+  description  String?
+  systemPrompt String
+  model        String           @default("gemini-2.5-flash")
+  temperature  Float            @default(0.7)
+  isActive     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+
+  license      WorkspaceLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  channels     ChannelAgent[]
+  messages     Message[]
+}
+
+model Channel {
+  id            String           @id @default(uuid())
+  licenseId     String
+  name          String
+  slug          String           @unique
+  description   String?
+  type          String           @default("INTERNAL_ROOM") // INTERNAL_ROOM, PUBLIC_LINK, DIRECT_AGENT
+  autoReplyMode String           @default("ALWAYS")        // ALWAYS, MENTION_ONLY, MANUAL
+  createdAt     DateTime         @default(now())
+
+  license       WorkspaceLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  assignedAgents ChannelAgent[]
+  messages      Message[]
+}
+
+model ChannelAgent {
+  channelId String
+  agentId   String
+
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  agent     Agent   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, agentId])
+}
+
+model Message {
+  id         String     @id @default(uuid())
+  channelId  String
+  senderType String     // USER, AGENT, SYSTEM
+  senderName String?
+  userId     String?
+  agentId    String?
+  content    String
+  createdAt  DateTime   @default(now())
+
+  channel    Channel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  agent      Agent?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  @@index([channelId, createdAt])
+}

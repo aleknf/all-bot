@@ -1,0 +1,24 @@
+services:
+  allbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: allbot-workspace
+    restart: unless-stopped
+    ports:
+      # Port 4000 menyajikan Frontend Web dan Backend WebSocket sekaligus
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DATABASE_URL=file:/app/data/allbot.db
+      - DEFAULT_LICENSE_KEY=ALLBOT-CORP-DEV-2026
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      # Database SQLite dev.db disimpan di volume ini agar tidak hilang saat container restart/update
+      - allbot_data:/app/data
+
+volumes:
+  allbot_data:
+    driver: local
