@@ -18,6 +18,14 @@ services:
     volumes:
       # Database SQLite dev.db disimpan di volume ini agar tidak hilang saat container restart/update
       - allbot_data:/app/data
+    networks:
+      - default
+      - stack_default
+
+networks:
+  default:
+  stack_default:
+    external: true
 
 volumes:
   allbot_data:
