@@ -17,6 +17,15 @@ model WorkspaceLicense {
   expiresAt        DateTime?
   createdAt        DateTime        @default(now())
 
+  // Web Subscription Credentials (Tanpa API Key Berbayar)
+  claudeSessionKey    String?
+  geminiSecure1PSID   String?
+  geminiSecure1PSIDTS String?
+
+  // Optional Official API Keys
+  geminiApiKey        String?
+  openaiApiKey        String?
+
   devices          DeviceSession[]
   users            User[]
   agents           Agent[]

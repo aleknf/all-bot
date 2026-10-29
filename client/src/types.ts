@@ -7,6 +7,17 @@ export interface WorkspaceLicense {
   usedAgents: number;
   channelsCount: number;
   devices: DeviceSession[];
+  credentials?: {
+    claudeSessionKey?: string;
+    hasClaudeSession?: boolean;
+    geminiSecure1PSID?: string;
+    hasGeminiSession?: boolean;
+    geminiSecure1PSIDTS?: string;
+    geminiApiKey?: string;
+    hasGeminiApi?: boolean;
+    openaiApiKey?: string;
+    hasOpenAiApi?: boolean;
+  };
 }
 
 export interface DeviceSession {

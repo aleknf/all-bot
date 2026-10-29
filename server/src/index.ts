@@ -170,7 +170,12 @@ io.on("connection", (socket: Socket) => {
           content: m.content,
         }));
 
-        // Generate balasan LLM
+        // Ambil kredensial lisensi untuk Web Session Claude / Gemini
+        const currentLicense = await prisma.workspaceLicense.findUnique({
+          where: { id: channel.licenseId },
+        });
+
+        // Generate balasan LLM (Web Session atau API)
         const replyText = await generateAgentReply(
           {
             id: targetAgent.id,
@@ -180,7 +185,14 @@ io.on("connection", (socket: Socket) => {
             temperature: targetAgent.temperature,
           },
           history,
-          content
+          content,
+          {
+            claudeSessionKey: currentLicense?.claudeSessionKey,
+            geminiSecure1PSID: currentLicense?.geminiSecure1PSID,
+            geminiSecure1PSIDTS: currentLicense?.geminiSecure1PSIDTS,
+            geminiApiKey: currentLicense?.geminiApiKey,
+            openaiApiKey: currentLicense?.openaiApiKey,
+          }
         );
 
         // Simpan balasan agen ke database
@@ -255,9 +267,45 @@ app.get("/api/license", async (req, res) => {
       usedAgents: license._count.agents,
       channelsCount: license._count.channels,
       devices: license.devices,
+      credentials: {
+        claudeSessionKey: license.claudeSessionKey ? "••••••••" + license.claudeSessionKey.slice(-6) : "",
+        hasClaudeSession: !!license.claudeSessionKey,
+        geminiSecure1PSID: license.geminiSecure1PSID ? "••••••••" + license.geminiSecure1PSID.slice(-6) : "",
+        hasGeminiSession: !!license.geminiSecure1PSID,
+        geminiSecure1PSIDTS: license.geminiSecure1PSIDTS ? "Set" : "",
+        geminiApiKey: license.geminiApiKey ? "••••••••" + license.geminiApiKey.slice(-4) : "",
+        hasGeminiApi: !!license.geminiApiKey,
+        openaiApiKey: license.openaiApiKey ? "••••••••" + license.openaiApiKey.slice(-4) : "",
+        hasOpenAiApi: !!license.openaiApiKey,
+      },
     });
   } catch (error) {
     res.status(500).json({ error: "Gagal mengambil data lisensi" });
+  }
+});
+
+// Update Akun Web Subscription (Cookie) & API Keys
+app.post("/api/license/credentials", async (req, res) => {
+  try {
+    const { claudeSessionKey, geminiSecure1PSID, geminiSecure1PSIDTS, geminiApiKey, openaiApiKey } = req.body;
+    const license = await prisma.workspaceLicense.findFirst();
+    if (!license) return res.status(404).json({ error: "Lisensi tidak ditemukan" });
+
+    const updateData: any = {};
+    if (claudeSessionKey !== undefined) updateData.claudeSessionKey = claudeSessionKey;
+    if (geminiSecure1PSID !== undefined) updateData.geminiSecure1PSID = geminiSecure1PSID;
+    if (geminiSecure1PSIDTS !== undefined) updateData.geminiSecure1PSIDTS = geminiSecure1PSIDTS;
+    if (geminiApiKey !== undefined) updateData.geminiApiKey = geminiApiKey;
+    if (openaiApiKey !== undefined) updateData.openaiApiKey = openaiApiKey;
+
+    await prisma.workspaceLicense.update({
+      where: { id: license.id },
+      data: updateData,
+    });
+
+    res.json({ success: true, message: "Kredensial berhasil diperbarui" });
+  } catch (error) {
+    res.status(500).json({ error: "Gagal memperbarui kredensial" });
   }
 });
 

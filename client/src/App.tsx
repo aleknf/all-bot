@@ -263,6 +263,7 @@ export const App: React.FC = () => {
         currentDeviceId={deviceId}
         onClose={() => setIsLicenseModalOpen(false)}
         onRevokeDevice={handleRevokeDevice}
+        onRefreshLicense={fetchLicense}
       />
     </div>
   );
