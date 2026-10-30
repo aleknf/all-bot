@@ -13,6 +13,10 @@ services:
       - PORT=4000
       - DATABASE_URL=file:/app/data/allbot.db
       - DEFAULT_LICENSE_KEY=ALLBOT-CORP-DEV-2026
+      # Wajib: minimal 32 karakter acak (mis. `openssl rand -hex 32`), taruh di file .env di samping compose
+      - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET wajib diisi}
+      # Opsional: password admin awal. Kosong = dibuat acak dan dicetak di log saat seed pertama
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - NODE_OPTIONS=--max-http-header-size=128000
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}

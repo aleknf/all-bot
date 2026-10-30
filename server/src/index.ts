@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import http from "http";
 import cors from "cors";
@@ -15,6 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set("trust proxy", 1); // di belakang Caddy: req.ip harus IP klien, bukan IP proxy
 const server = http.createServer(app);
 
 app.use(cors({ origin: "*" }));
@@ -267,9 +269,38 @@ io.on("connection", (socket: Socket) => {
 // 3. REST API ENDPOINTS
 // ----------------------------------------------------
 
+// Pembatas percobaan login (in-memory, per IP): maks 10 gagal per 15 menit
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 10;
+const loginFailures = new Map<string, { count: number; resetAt: number }>();
+
+function isLoginBlocked(ip: string): boolean {
+  const entry = loginFailures.get(ip);
+  if (!entry) return false;
+  if (Date.now() > entry.resetAt) {
+    loginFailures.delete(ip);
+    return false;
+  }
+  return entry.count >= LOGIN_MAX_FAILURES;
+}
+
+function recordLoginFailure(ip: string) {
+  const entry = loginFailures.get(ip);
+  if (!entry || Date.now() > entry.resetAt) {
+    loginFailures.set(ip, { count: 1, resetAt: Date.now() + LOGIN_WINDOW_MS });
+  } else {
+    entry.count++;
+  }
+}
+
 // AUTH: Login
 app.post("/api/auth/login", async (req, res) => {
   try {
+    const ip = req.ip || "unknown";
+    if (isLoginBlocked(ip)) {
+      return res.status(429).json({ error: "Terlalu banyak percobaan login gagal. Coba lagi dalam 15 menit." });
+    }
+
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: "Email dan password wajib diisi" });
@@ -280,9 +311,11 @@ app.post("/api/auth/login", async (req, res) => {
     });
 
     if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+      recordLoginFailure(ip);
       return res.status(401).json({ error: "Email atau password yang Anda masukkan salah" });
     }
 
+    loginFailures.delete(ip);
     const token = createAuthToken(user.id, user.email);
     res.json({
       token,

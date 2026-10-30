@@ -24,20 +24,24 @@ async function main() {
     },
   });
 
-  // Admin User dengan Password Default: AdminPassword2026!
-  await prisma.user.upsert({
-    where: { email: "admin@alek.internal" },
-    update: {
-      passwordHash: hashPassword("AdminPassword2026!"),
-    },
-    create: {
-      licenseId: license.id,
-      email: "admin@alek.internal",
-      name: "Alek (Admin)",
-      role: "ADMIN",
-      passwordHash: hashPassword("AdminPassword2026!"),
-    },
-  });
+  // Password admin dari ADMIN_PASSWORD, atau acak (dicetak sekali ke log) jika tidak diisi.
+  // Admin yang sudah ada tidak pernah ditimpa passwordnya.
+  const existingAdmin = await prisma.user.findUnique({ where: { email: "admin@alek.internal" } });
+  if (!existingAdmin) {
+    const adminPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(12).toString("base64url");
+    await prisma.user.create({
+      data: {
+        licenseId: license.id,
+        email: "admin@alek.internal",
+        name: "Alek (Admin)",
+        role: "ADMIN",
+        passwordHash: hashPassword(adminPassword),
+      },
+    });
+    if (!process.env.ADMIN_PASSWORD) {
+      console.log(`[Seed] Password admin awal (admin@alek.internal): ${adminPassword} — segera ganti setelah login.`);
+    }
+  }
 
   const countAgents = await prisma.agent.count();
   if (countAgents > 0) {
