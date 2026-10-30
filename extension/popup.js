@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     'allbot_remember',
   ]);
 
-  // Fungsi pembuat default IP acak (dummy) agar tidak mengekspos IP server riil
+  // Fungsi pembuat default IP acak (dummy) saat pertama kali buka jika belum pernah input
   const generateRandomIpUrl = () => {
     const o1 = Math.floor(Math.random() * 180) + 20;
     const o2 = Math.floor(Math.random() * 254) + 1;
@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `http://${o1}.${o2}.${o3}.${o4}:4000`;
   };
 
+  // Jika sudah pernah input, selalu ingat dan pakai yang tersimpan. Jangan di-random lagi.
   if (saved.allbot_server_url) {
     serverUrlInput.value = saved.allbot_server_url;
   } else {
@@ -55,6 +56,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   } else {
     rememberPasswordCheckbox.checked = false;
   }
+
+  // Auto-save langsung saat user mengetik agar tidak hilang saat popup tertutup
+  serverUrlInput.addEventListener('input', () => {
+    const val = serverUrlInput.value.trim();
+    if (val) {
+      chrome.storage.local.set({ allbot_server_url: val });
+    }
+  });
+
+  emailInput.addEventListener('input', () => {
+    const val = emailInput.value.trim();
+    if (val) {
+      chrome.storage.local.set({ allbot_email: val });
+    }
+  });
+
+  passwordInput.addEventListener('input', () => {
+    if (rememberPasswordCheckbox.checked) {
+      chrome.storage.local.set({ allbot_password: passwordInput.value });
+    }
+  });
+
+  rememberPasswordCheckbox.addEventListener('change', () => {
+    const isChecked = rememberPasswordCheckbox.checked;
+    chrome.storage.local.set({
+      allbot_remember: isChecked,
+      allbot_password: isChecked ? passwordInput.value : '',
+    });
+  });
 
   // 2. Periksa status auth token yang tersimpan di server
   const checkCurrentAuth = async () => {
@@ -149,6 +179,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const serverUrl = serverUrlInput.value.trim().replace(/\/$/, '');
     const email = emailInput.value.trim();
     const password = passwordInput.value;
+
+    // Pastikan URL selalu langsung disimpan seketika user klik sinkronkan
+    if (serverUrl) {
+      await chrome.storage.local.set({ allbot_server_url: serverUrl });
+    }
 
     if (!email) {
       msgBox.className = 'msg-box msg-error';
