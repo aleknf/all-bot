@@ -6,6 +6,7 @@ import { AgentModal } from './components/AgentModal.js';
 import { ChannelModal } from './components/ChannelModal.js';
 import { LicenseModal } from './components/LicenseModal.js';
 import { AdvancedModal } from './components/AdvancedModal.js';
+import { ChangePasswordModal } from './components/ChangePasswordModal.js';
 import { LoginScreen } from './components/LoginScreen.js';
 import { initSocket, getDeviceId, disconnectSocket } from './socket.js';
 
@@ -33,6 +34,7 @@ export const App: React.FC = () => {
   const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
   const [isAdvancedModalOpen, setIsAdvancedModalOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [providers, setProviders] = useState<LlmProvider[]>([]);
 
   const deviceId = getDeviceId();
@@ -290,6 +292,7 @@ export const App: React.FC = () => {
           setEditingAgent(agent);
           setIsAgentModalOpen(true);
         }}
+        onOpenChangePassword={() => setIsChangePasswordOpen(true)}
         onLogout={handleLogout}
       />
 
@@ -323,6 +326,12 @@ export const App: React.FC = () => {
         agents={agents}
         onClose={() => setIsChannelModalOpen(false)}
         onSave={handleSaveChannel}
+      />
+
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        authFetch={authFetch}
+        onClose={() => setIsChangePasswordOpen(false)}
       />
 
       <AdvancedModal

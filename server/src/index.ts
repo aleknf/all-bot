@@ -256,13 +256,17 @@ app.post("/api/auth/change-password", requireAuth, async (req, res) => {
     const userId = (req as any).user.userId;
     const { oldPassword, newPassword } = req.body;
 
-    if (!oldPassword || !newPassword || newPassword.length < 6) {
-      return res.status(400).json({ error: "Password baru minimal 6 karakter" });
+    if (!oldPassword || !newPassword || newPassword.length < 8) {
+      return res.status(400).json({ error: "Password baru minimal 8 karakter" });
+    }
+    if (oldPassword === newPassword) {
+      return res.status(400).json({ error: "Password baru harus berbeda dari password lama" });
     }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
+    // 403 (bukan 401): klien menganggap 401 sebagai sesi habis dan otomatis logout
     if (!user || !user.passwordHash || !verifyPassword(oldPassword, user.passwordHash)) {
-      return res.status(401).json({ error: "Password lama tidak sesuai" });
+      return res.status(403).json({ error: "Password lama tidak sesuai" });
     }
 
     await prisma.user.update({

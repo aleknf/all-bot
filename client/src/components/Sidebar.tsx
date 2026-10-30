@@ -12,6 +12,7 @@ import {
   Sparkles,
   ChevronRight,
   LogOut,
+  KeyRound,
   User as UserIcon
 } from 'lucide-react';
 
@@ -27,6 +28,7 @@ interface SidebarProps {
   onOpenLicenseModal: () => void;
   onOpenAdvancedModal: () => void;
   onEditAgent: (agent: Agent) => void;
+  onOpenChangePassword?: () => void;
   onLogout?: () => void;
 }
 
@@ -42,6 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenLicenseModal,
   onOpenAdvancedModal,
   onEditAgent,
+  onOpenChangePassword,
   onLogout,
 }) => {
   return (
@@ -198,15 +201,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
 
-            {onLogout && (
-              <button
-                onClick={onLogout}
-                title="Keluar dari Workspace"
-                className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            )}
+            <div className="flex items-center shrink-0">
+              {onOpenChangePassword && (
+                <button
+                  onClick={onOpenChangePassword}
+                  title="Ganti Password"
+                  className="p-1.5 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-lg transition"
+                >
+                  <KeyRound className="w-4 h-4" />
+                </button>
+              )}
+              {onLogout && (
+                <button
+                  onClick={onLogout}
+                  title="Keluar dari Workspace"
+                  className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded-lg transition"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>
