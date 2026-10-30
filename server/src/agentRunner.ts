@@ -1,6 +1,6 @@
 import type { Agent, LlmProvider } from "@prisma/client";
 import { prisma } from "./db.js";
-import { generateAgentReply, type WebCredentials } from "./ai.js";
+import { generateAgentReply, type StatusCallback, type WebCredentials } from "./ai.js";
 import { runChatLoop, type ChatMessage } from "./llm.js";
 import { getBuiltinTools, type SubagentTask, type ToolContext, type ToolDef } from "./tools.js";
 import { getMcpTools } from "./mcp.js";
@@ -122,7 +122,8 @@ export async function runAgent(
   history: Array<{ senderType: string; content: string }>,
   userMessage: string,
   creds?: WebCredentials,
-  channelInstructions?: string | null
+  channelInstructions?: string | null,
+  onStatus?: StatusCallback
 ): Promise<string> {
   const systemPrompt =
     agent.systemPrompt +
@@ -151,6 +152,7 @@ export async function runAgent(
     },
     history,
     userMessage,
-    creds
+    creds,
+    onStatus
   );
 }

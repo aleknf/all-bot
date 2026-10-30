@@ -2,8 +2,11 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
 import fs from "fs";
+import { createHash } from "crypto";
 
 const execFileAsync = promisify(execFile);
+
+export type StatusCallback = (text: string | null) => void;
 
 export interface AgentContext {
   id: string;
@@ -46,6 +49,9 @@ function claudeWebCandidates(agentModel?: string): string[] {
   return [...new Set([...preferred, ...CLAUDE_WEB_FALLBACK_MODELS])];
 }
 
+// claude.ai membatasi laju permintaan cookie-session (terukur ±1 balasan per 3 menit dari VPS), bukan kuota pesan.
+class RateLimitedError extends Error {}
+
 async function callClaudeWebSession(rawSessionKey: string, prompt: string, systemPrompt?: string, agentModel?: string): Promise<string> {
   const sessionKey = cleanCookieValue(rawSessionKey, "sessionKey");
   const fullPrompt = `${systemPrompt ? `[Instruksi Sistem: ${systemPrompt}]\n\n` : ""}${prompt}`;
@@ -61,6 +67,7 @@ async function callClaudeWebSession(rawSessionKey: string, prompt: string, syste
       },
     });
 
+    if (orgRes.status === 429) throw new RateLimitedError("claude.ai membatasi laju permintaan");
     if (!orgRes.ok) {
       const errText = await orgRes.text().catch(() => "");
       if (errText.includes("cf-turnstile") || errText.includes("challenge") || errText.includes("Just a moment") || orgRes.status === 403) {
@@ -88,14 +95,14 @@ async function callClaudeWebSession(rawSessionKey: string, prompt: string, syste
       body: JSON.stringify({ uuid: convUuid, name: "" }),
     });
 
+    if (createConvRes.status === 429) throw new RateLimitedError("claude.ai membatasi laju permintaan");
     if (!createConvRes.ok) {
       throw new Error(`Gagal membuat percakapan claude.ai (${createConvRes.status})`);
     }
 
-    // 3. Coba model agen dulu, lalu model web lain yang lebih ringan bila gagal atau kena batas pemakaian
+    // 3. Coba model agen dulu, lalu model web lain bila model tidak tersedia (403/404, dsb.)
     const candidateModels = claudeWebCandidates(agentModel);
     let lastStreamError = "";
-    let rateLimitedModels = 0;
 
     for (const modelToTry of candidateModels) {
       const streamRes = await fetch(`https://claude.ai/api/organizations/${orgId}/chat_conversations/${convUuid}/completion`, {
@@ -118,10 +125,19 @@ async function callClaudeWebSession(rawSessionKey: string, prompt: string, syste
         }),
       });
 
+      // Pembatasan berlaku per sesi, bukan per model: ganti model tidak membantu, jadi serahkan ke antrean.
       if (streamRes.status === 429) {
-        rateLimitedModels++;
-        lastStreamError = `Model ${modelToTry} kena batas pemakaian (429)`;
-        continue;
+        // Percakapan kosong yang baru kita buat tidak perlu menumpuk di akun claude.ai (best effort)
+        fetch(`https://claude.ai/api/organizations/${orgId}/chat_conversations/${convUuid}`, {
+          method: "DELETE",
+          headers: {
+            Cookie: `sessionKey=${sessionKey}`,
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            Origin: "https://claude.ai",
+          },
+        }).catch(() => {});
+        throw new RateLimitedError("claude.ai membatasi laju permintaan");
       }
 
       if (!streamRes.ok) {
@@ -150,16 +166,96 @@ async function callClaudeWebSession(rawSessionKey: string, prompt: string, syste
       }
     }
 
-    if (rateLimitedModels === candidateModels.length) {
-      throw new Error(
-        `Akun Claude Pro Anda sedang mencapai batas penggunaan (429) untuk semua model yang dicoba (${candidateModels.join(", ")}). Tunggu hingga kuota direset.`
-      );
-    }
     throw new Error(lastStreamError || "Respons streaming dari claude.ai kosong.");
   } catch (err: any) {
+    if (err instanceof RateLimitedError) throw err;
     console.error("[Claude Web Session Error]", err);
     throw new Error(err.message || "Claude Web API gagal");
   }
+}
+
+// ----------------------------------------------------
+// Antrean per sesi Claude: satu permintaan pada satu waktu, menghormati jeda, retry saat 429
+// ----------------------------------------------------
+const envMs = (name: string, fallback: number) => Number(process.env[name]) || fallback;
+const CLAUDE_COOLDOWN_MS = envMs("CLAUDE_WEB_COOLDOWN_MS", 185_000); // terukur ±180 dtk antar balasan
+const CLAUDE_RETRY_MS = envMs("CLAUDE_WEB_RETRY_MS", 30_000);
+const CLAUDE_MAX_WAIT_MS = envMs("CLAUDE_WEB_MAX_WAIT_MS", 8 * 60_000);
+const CLAUDE_MAX_QUEUE = envMs("CLAUDE_WEB_MAX_QUEUE", 3);
+
+interface ClaudeSessionState {
+  tail: Promise<unknown>;
+  lastRequestAt: number; // awal permintaan sukses terakhir
+  waiting: number;
+}
+const claudeSessions = new Map<string, ClaudeSessionState>();
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function waitWithStatus(totalMs: number, label: string, onStatus?: StatusCallback) {
+  const until = Date.now() + totalMs;
+  for (;;) {
+    const remaining = until - Date.now();
+    if (remaining <= 0) return;
+    onStatus?.(`${label} (±${Math.ceil(remaining / 1000)} dtk)`);
+    await sleep(Math.min(15_000, remaining));
+  }
+}
+
+async function callClaudeQueued(
+  rawSessionKey: string,
+  prompt: string,
+  systemPrompt: string | undefined,
+  agentModel: string | undefined,
+  onStatus?: StatusCallback
+): Promise<string> {
+  const id = createHash("sha256").update(cleanCookieValue(rawSessionKey, "sessionKey")).digest("hex").slice(0, 16);
+  let state = claudeSessions.get(id);
+  if (!state) {
+    state = { tail: Promise.resolve(), lastRequestAt: 0, waiting: 0 };
+    claudeSessions.set(id, state);
+  }
+  const session = state;
+
+  if (session.waiting >= CLAUDE_MAX_QUEUE) {
+    throw new Error(`Antrean Claude penuh (${CLAUDE_MAX_QUEUE} pesan menunggu). Coba lagi beberapa menit lagi.`);
+  }
+  session.waiting++;
+  if (session.waiting > 1) onStatus?.(`Antre: menunggu ${session.waiting - 1} pesan sebelumnya`);
+
+  const run = async (): Promise<string> => {
+    const enqueuedWaitStart = Date.now();
+    try {
+      for (;;) {
+        const sinceLast = Date.now() - session.lastRequestAt;
+        if (sinceLast < CLAUDE_COOLDOWN_MS) {
+          await waitWithStatus(CLAUDE_COOLDOWN_MS - sinceLast, "Menunggu jeda claude.ai", onStatus);
+        }
+
+        const startedAt = Date.now();
+        try {
+          onStatus?.(null);
+          const text = await callClaudeWebSession(rawSessionKey, prompt, systemPrompt, agentModel);
+          session.lastRequestAt = startedAt;
+          return text;
+        } catch (err) {
+          if (!(err instanceof RateLimitedError)) throw err;
+          if (Date.now() - enqueuedWaitStart > CLAUDE_MAX_WAIT_MS) {
+            throw new Error(
+              `claude.ai masih membatasi laju permintaan setelah menunggu ${Math.round(CLAUDE_MAX_WAIT_MS / 60000)} menit. Coba lagi nanti.`
+            );
+          }
+          await waitWithStatus(CLAUDE_RETRY_MS, "claude.ai membatasi laju, mencoba lagi", onStatus);
+        }
+      }
+    } finally {
+      session.waiting--;
+    }
+  };
+
+  const result = session.tail.then(run, run);
+  session.tail = result.catch(() => {});
+  return result;
 }
 
 // ----------------------------------------------------
@@ -285,7 +381,8 @@ export async function generateAgentReply(
   agent: AgentContext,
   history: Array<{ senderType: string; content: string }>,
   userMessage: string,
-  creds?: WebCredentials
+  creds?: WebCredentials,
+  onStatus?: StatusCallback
 ): Promise<string> {
   const modelName = agent.model.toLowerCase();
   let lastError = "";
@@ -296,7 +393,7 @@ export async function generateAgentReply(
 
     if (sessionKey) {
       try {
-        return await callClaudeWebSession(sessionKey, userMessage, agent.systemPrompt, agent.model);
+        return await callClaudeQueued(sessionKey, userMessage, agent.systemPrompt, agent.model, onStatus);
       } catch (err: any) {
         lastError = `Claude Web Session: ${err.message}`;
         console.warn("[Claude Web Session Failed]:", err.message);

@@ -25,7 +25,7 @@ export const App: React.FC = () => {
   const [license, setLicense] = useState<WorkspaceLicense | null>(null);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [typingAgent, setTypingAgent] = useState<{ agentName: string; isTyping: boolean } | null>(null);
+  const [typingAgent, setTypingAgent] = useState<{ agentName: string; isTyping: boolean; status?: string } | null>(null);
 
   // Modals state
   const [isAgentModalOpen, setIsAgentModalOpen] = useState(false);
@@ -85,6 +85,10 @@ export const App: React.FC = () => {
       }
     });
 
+    socket.on('agent_status', (data: { text: string | null }) => {
+      setTypingAgent((prev) => (prev ? { ...prev, status: data.text || undefined } : prev));
+    });
+
     socket.on('device_revoked', (data: { deviceId: string }) => {
       if (data.deviceId === deviceId) {
         alert('Sesi perangkat ini telah diputuskan dari lisensi oleh admin.');
@@ -103,6 +107,7 @@ export const App: React.FC = () => {
     return () => {
       socket.off('new_message');
       socket.off('agent_typing');
+      socket.off('agent_status');
       socket.off('device_revoked');
     };
   }, [token]);

@@ -67,6 +67,10 @@ export async function handleChannelMessage(io: Server, input: ChannelMessageInpu
       isTyping,
     });
 
+  // Status tambahan (mis. "menunggu jeda claude.ai") ditampilkan di samping indikator mengetik
+  const status = (text: string | null) =>
+    io.to(channelId).emit("agent_status", { channelId, agentId: targetAgent.id, agentName: targetAgent.name, text });
+
   typing(true);
   try {
     const history = channel.messages.reverse().map((m) => ({ senderType: m.senderType, content: m.content }));
@@ -78,7 +82,7 @@ export async function handleChannelMessage(io: Server, input: ChannelMessageInpu
       geminiSecure1PSIDTS: license?.geminiSecure1PSIDTS,
       geminiApiKey: license?.geminiApiKey,
       openaiApiKey: license?.openaiApiKey,
-    }, channel.instructions);
+    }, channel.instructions, status);
 
     const botMessage = await prisma.message.create({
       data: {
@@ -95,6 +99,7 @@ export async function handleChannelMessage(io: Server, input: ChannelMessageInpu
     console.error("[Message Process Error]", err);
     return { replied: false, error: err?.message || "Gagal memproses pesan" };
   } finally {
+    status(null);
     typing(false);
   }
 }

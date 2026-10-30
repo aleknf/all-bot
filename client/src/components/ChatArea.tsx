@@ -14,7 +14,7 @@ import {
 interface ChatAreaProps {
   channel: Channel | null;
   messages: Message[];
-  typingAgent: { agentName: string; isTyping: boolean } | null;
+  typingAgent: { agentName: string; isTyping: boolean; status?: string } | null;
   onSendMessage: (content: string) => void;
   onUpdateAutoReply: (mode: 'ALWAYS' | 'MENTION_ONLY' | 'MANUAL') => void;
 }
@@ -218,7 +218,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             </div>
             <div className="bg-slate-800/70 border border-slate-700 px-3.5 py-2 rounded-2xl flex items-center space-x-2">
               <span className="font-medium text-emerald-400">{typingAgent.agentName}</span>
-              <span className="text-slate-400">sedang menyusun jawaban</span>
+              <span className="text-slate-400">{typingAgent.status || 'sedang menyusun jawaban'}</span>
               <div className="flex space-x-1">
                 <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
                 <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
