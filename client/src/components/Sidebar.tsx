@@ -6,6 +6,7 @@ import {
   Bot, 
   Plus, 
   Settings, 
+  Wrench,
   ShieldCheck, 
   Laptop, 
   Sparkles,
@@ -24,6 +25,7 @@ interface SidebarProps {
   onOpenCreateChannel: () => void;
   onOpenCreateAgent: () => void;
   onOpenLicenseModal: () => void;
+  onOpenAdvancedModal: () => void;
   onEditAgent: (agent: Agent) => void;
   onLogout?: () => void;
 }
@@ -38,6 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenCreateChannel,
   onOpenCreateAgent,
   onOpenLicenseModal,
+  onOpenAdvancedModal,
   onEditAgent,
   onLogout,
 }) => {
@@ -62,13 +65,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={onOpenLicenseModal}
-          title="Pengaturan Lisensi & Perangkat"
-          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
+        <div className="flex items-center">
+          <button
+            onClick={onOpenAdvancedModal}
+            title="Pengaturan Lanjutan (Provider, MCP, Jadwal, Memori)"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+          >
+            <Wrench className="w-4 h-4" />
+          </button>
+          <button
+            onClick={onOpenLicenseModal}
+            title="Pengaturan Lisensi & Perangkat"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Nav List */}

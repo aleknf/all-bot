@@ -24,6 +24,18 @@ Aplikasi web terpadu untuk mengelola berbagai agen AI dan channel obrolan, denga
    - Dilengkapi dashboard monitor perangkat aktif (Device Name, Device ID, IP, Last Active).
    - Fitur *Revoke/Kick* perangkat untuk membebaskan kuota seat secara langsung.
 
+5. **Agen dengan Tool, Subagen Paralel & MCP** *(Pengaturan Lanjutan → ikon kunci inggris di sidebar)*:
+   - Agen yang diberi provider bisa memanggil tool: waktu, kalkulator aman, `web_fetch` (alamat internal diblokir), memori, dan `run_subagents` untuk mengerjakan beberapa tugas independen **secara paralel**.
+   - **MCP**: sambungkan server MCP remote (HTTP/SSE); tool-nya otomatis tersedia untuk agen dengan tool aktif. Transport `stdio` mati secara default (set `ALLOW_MCP_STDIO=true` bila memang perlu).
+
+6. **Provider LLM Fleksibel**: Nous Portal, OpenRouter, OpenAI, atau endpoint OpenAI-compatible kustom (mis. Ollama). Provider dan nama model dipilih per agen dari UI, tanpa mengubah kode. Jalur lama (cookie Claude/Gemini web) tetap berjalan untuk agen tanpa provider.
+
+7. **Scheduler Cron**: jalankan prompt otomatis (cron 5 kolom + zona waktu), hasilnya diposting ke channel.
+
+8. **Memori Lintas Sesi**: fakta jangka panjang ikut terbawa ke semua channel dan sesi; disimpan agen lewat `memory_save` atau ditambah manual dari UI.
+
+> Pengaturan provider, MCP, dan jadwal hanya bisa diubah oleh user ber-role `ADMIN`.
+
 ---
 
 ## 🚀 Cara Menjalankan

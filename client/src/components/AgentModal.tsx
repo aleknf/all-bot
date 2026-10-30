@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Agent } from '../types.js';
-import { X, Sparkles, Trash2, Cpu } from 'lucide-react';
+import { Agent, LlmProvider } from '../types.js';
+import { X, Sparkles, Trash2, Cpu, Wrench } from 'lucide-react';
 
 interface AgentModalProps {
   isOpen: boolean;
   agent: Agent | null; // null jika create new
+  providers: LlmProvider[];
+  authFetch: (url: string, options?: RequestInit) => Promise<Response>;
   onClose: () => void;
   onSave: (data: Partial<Agent>) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
@@ -13,6 +15,8 @@ interface AgentModalProps {
 export const AgentModal: React.FC<AgentModalProps> = ({
   isOpen,
   agent,
+  providers,
+  authFetch,
   onClose,
   onSave,
   onDelete,
@@ -22,6 +26,10 @@ export const AgentModal: React.FC<AgentModalProps> = ({
   const [temperature, setTemperature] = useState(0.7);
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [providerId, setProviderId] = useState('');
+  const [toolsEnabled, setToolsEnabled] = useState(false);
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [modelsMsg, setModelsMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -31,14 +39,51 @@ export const AgentModal: React.FC<AgentModalProps> = ({
       setTemperature(agent.temperature);
       setDescription(agent.description || '');
       setSystemPrompt(agent.systemPrompt);
+      setProviderId(agent.providerId || '');
+      setToolsEnabled(!!agent.toolsEnabled);
     } else {
       setName('');
       setModel('gemini-2.5-flash');
       setTemperature(0.7);
       setDescription('');
       setSystemPrompt('Anda adalah asisten cerdas yang bertugas...');
+      setProviderId('');
+      setToolsEnabled(false);
     }
+    setModelOptions([]);
+    setModelsMsg('');
   }, [agent, isOpen]);
+
+  const selectedProvider = providers.find((p) => p.id === providerId);
+
+  const loadModels = async () => {
+    if (!providerId) return;
+    setModelsMsg('Memuat...');
+    try {
+      const res = await authFetch(`/api/providers/${providerId}/models`);
+      const data = await res.json();
+      if (!res.ok) {
+        setModelsMsg(data.error || 'Gagal memuat model');
+        return;
+      }
+      setModelOptions(data);
+      setModelsMsg(`${data.length} model ditemukan`);
+    } catch {
+      setModelsMsg('Gagal memuat model');
+    }
+  };
+
+  const handleProviderChange = (id: string) => {
+    setProviderId(id);
+    setModelOptions([]);
+    setModelsMsg('');
+    const p = providers.find((x) => x.id === id);
+    if (p?.defaultModel) setModel(p.defaultModel);
+    if (!id) {
+      setToolsEnabled(false);
+      setModel('gemini-2.5-flash');
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -54,6 +99,8 @@ export const AgentModal: React.FC<AgentModalProps> = ({
         temperature: Number(temperature),
         description: description.trim(),
         systemPrompt: systemPrompt.trim(),
+        providerId: providerId || null,
+        toolsEnabled: providerId ? toolsEnabled : false,
       });
       onClose();
     } finally {
@@ -96,22 +143,65 @@ export const AgentModal: React.FC<AgentModalProps> = ({
             />
           </div>
 
+          <div>
+            <label className="block text-slate-300 font-medium mb-1 flex items-center gap-1">
+              <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+              Provider LLM
+            </label>
+            <select
+              value={providerId}
+              onChange={(e) => handleProviderChange(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-emerald-500"
+            >
+              <option value="">Bawaan (Claude/Gemini web session &amp; API key lisensi)</option>
+              {providers.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} — {p.baseUrl}
+                </option>
+              ))}
+            </select>
+            {providers.length === 0 && (
+              <p className="text-[11px] text-slate-500 mt-1">
+                Tambah Nous Portal / OpenRouter / OpenAI / endpoint kustom di Pengaturan Lanjutan → Provider.
+              </p>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-slate-300 font-medium mb-1 flex items-center gap-1">
-                <Cpu className="w-3.5 h-3.5 text-emerald-400" />
-                Model Provider
-              </label>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-emerald-500"
-              >
-                <option value="gemini-2.5-flash">Google Gemini 2.5 Flash</option>
-                <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-                <option value="gpt-4o-mini">OpenAI GPT-4o Mini</option>
-                <option value="gpt-4o">OpenAI GPT-4o</option>
-              </select>
+              <label className="block text-slate-300 font-medium mb-1">Model</label>
+              {selectedProvider ? (
+                <>
+                  <input
+                    type="text"
+                    list="agent-model-options"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder="mis. openai/gpt-4o-mini"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                  <datalist id="agent-model-options">
+                    {modelOptions.map((m) => (
+                      <option key={m} value={m} />
+                    ))}
+                  </datalist>
+                  <button type="button" onClick={loadModels} className="mt-1 text-[11px] text-emerald-400 hover:underline">
+                    Muat daftar model dari provider
+                  </button>
+                  {modelsMsg && <span className="ml-2 text-[11px] text-slate-500">{modelsMsg}</span>}
+                </>
+              ) : (
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="gemini-2.5-flash">Google Gemini 2.5 Flash</option>
+                  <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                  <option value="gpt-4o-mini">OpenAI GPT-4o Mini</option>
+                  <option value="gpt-4o">OpenAI GPT-4o</option>
+                </select>
+              )}
             </div>
 
             <div>
@@ -129,6 +219,25 @@ export const AgentModal: React.FC<AgentModalProps> = ({
               />
             </div>
           </div>
+
+          <label className={`flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 ${providerId ? 'cursor-pointer' : 'opacity-50'}`}>
+            <input
+              type="checkbox"
+              disabled={!providerId}
+              checked={toolsEnabled}
+              onChange={(e) => setToolsEnabled(e.target.checked)}
+              className="mt-0.5 accent-emerald-500"
+            />
+            <span>
+              <span className="text-slate-200 font-medium flex items-center gap-1">
+                <Wrench className="w-3.5 h-3.5 text-emerald-400" /> Aktifkan tool, subagen paralel &amp; MCP
+              </span>
+              <span className="block text-[11px] text-slate-500 mt-0.5">
+                Waktu, kalkulator, web fetch, memori, subagen paralel, dan tool dari server MCP. Butuh provider di atas dan model
+                yang mendukung function calling.
+              </span>
+            </span>
+          </label>
 
           <div>
             <label className="block text-slate-300 font-medium mb-1">Deskripsi Singkat</label>

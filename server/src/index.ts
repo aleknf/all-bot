@@ -7,7 +7,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Server, Socket } from "socket.io";
 import { prisma } from "./db.js";
-import { generateAgentReply } from "./ai.js";
+import { handleChannelMessage } from "./chat.js";
+import { registerExtraRoutes } from "./routes.js";
+import { startScheduler } from "./scheduler.js";
 import { createAuthToken, verifyAuthToken, verifyPassword, hashPassword } from "./auth.js";
 
 dotenv.config();
@@ -137,114 +139,13 @@ io.on("connection", (socket: Socket) => {
 
   // Kirim Pesan
   socket.on("send_message", async (payload: { channelId: string; content: string; senderName?: string }) => {
-    const { channelId, content, senderName } = payload;
-    if (!channelId || !content?.trim()) return;
-
     try {
-      // 1. Simpan pesan user
-      const userMessage = await prisma.message.create({
-        data: {
-          channelId,
-          senderType: "USER",
-          senderName: senderName || "Pengguna",
-          userId: (payload as any).userId || null,
-          content: content.trim(),
-        },
+      await handleChannelMessage(io, {
+        channelId: payload.channelId,
+        content: payload.content,
+        senderName: payload.senderName,
+        userId: (payload as any).userId,
       });
-
-      // 2. Broadcast ke semua browser/device di channel tersebut
-      io.to(channelId).emit("new_message", userMessage);
-
-      // 3. Cek apakah ada agen yang ditugaskan di channel ini
-      const channel = await prisma.channel.findUnique({
-        where: { id: channelId },
-        include: {
-          assignedAgents: { include: { agent: true } },
-          messages: {
-            orderBy: { createdAt: "desc" },
-            take: 6,
-          },
-        },
-      });
-
-      if (!channel || channel.assignedAgents.length === 0) return;
-
-      // Cari agen yang harus merespons
-      let targetAgent = channel.assignedAgents[0].agent;
-
-      // Cek apakah ada mention khusus misal "@CS" atau "@Research"
-      const mentioned = channel.assignedAgents.find((a) =>
-        content.toLowerCase().includes(`@${a.agent.name.toLowerCase()}`)
-      );
-      if (mentioned) {
-        targetAgent = mentioned.agent;
-      }
-
-      const shouldReply =
-        channel.autoReplyMode === "ALWAYS" ||
-        (channel.autoReplyMode === "MENTION_ONLY" && !!mentioned);
-
-      if (shouldReply && targetAgent.isActive) {
-        // Tampilkan animasi sedang mengetik di semua layar
-        io.to(channelId).emit("agent_typing", {
-          channelId,
-          agentId: targetAgent.id,
-          agentName: targetAgent.name,
-          isTyping: true,
-        });
-
-        // Ambil riwayat chat untuk konteks
-        const history = channel.messages.reverse().map((m) => ({
-          senderType: m.senderType,
-          content: m.content,
-        }));
-
-        // Ambil kredensial lisensi untuk Web Session Claude / Gemini
-        const currentLicense = await prisma.workspaceLicense.findUnique({
-          where: { id: channel.licenseId },
-        });
-
-        // Generate balasan LLM (Web Session atau API)
-        const replyText = await generateAgentReply(
-          {
-            id: targetAgent.id,
-            name: targetAgent.name,
-            systemPrompt: targetAgent.systemPrompt,
-            model: targetAgent.model,
-            temperature: targetAgent.temperature,
-          },
-          history,
-          content,
-          {
-            claudeSessionKey: currentLicense?.claudeSessionKey,
-            geminiSecure1PSID: currentLicense?.geminiSecure1PSID,
-            geminiSecure1PSIDTS: currentLicense?.geminiSecure1PSIDTS,
-            geminiApiKey: currentLicense?.geminiApiKey,
-            openaiApiKey: currentLicense?.openaiApiKey,
-          }
-        );
-
-        // Simpan balasan agen ke database
-        const botMessage = await prisma.message.create({
-          data: {
-            channelId,
-            senderType: "AGENT",
-            agentId: targetAgent.id,
-            senderName: targetAgent.name,
-            content: replyText,
-          },
-        });
-
-        // Matikan typing indicator & broadcast balasan agen
-        io.to(channelId).emit("agent_typing", {
-          channelId,
-          agentId: targetAgent.id,
-          agentName: targetAgent.name,
-          isTyping: false,
-        });
-
-        io.to(channelId).emit("new_message", botMessage);
-      }
     } catch (err) {
       console.error("[Message Process Error]", err);
     }
@@ -478,9 +379,13 @@ app.get("/api/agents", requireAuth, async (req, res) => {
 
 app.post("/api/agents", requireAuth, async (req, res) => {
   try {
-    const { name, systemPrompt, model, temperature, description } = req.body;
+    const { name, systemPrompt, model, temperature, description, providerId, toolsEnabled } = req.body;
     const license = await prisma.workspaceLicense.findFirst();
     if (!license) return res.status(400).json({ error: "Lisensi tidak ditemukan" });
+
+    if (providerId && !(await prisma.llmProvider.findUnique({ where: { id: providerId } }))) {
+      return res.status(400).json({ error: "Provider tidak ditemukan" });
+    }
 
     const agent = await prisma.agent.create({
       data: {
@@ -490,6 +395,8 @@ app.post("/api/agents", requireAuth, async (req, res) => {
         model: model || "gemini-2.5-flash",
         temperature: temperature !== undefined ? Number(temperature) : 0.7,
         description,
+        providerId: providerId || null,
+        toolsEnabled: !!toolsEnabled,
       },
     });
 
@@ -502,7 +409,10 @@ app.post("/api/agents", requireAuth, async (req, res) => {
 app.put("/api/agents/:id", requireAuth, async (req, res) => {
   try {
     const agentId = req.params.id as string;
-    const { name, systemPrompt, model, temperature, description, isActive } = req.body;
+    const { name, systemPrompt, model, temperature, description, isActive, providerId, toolsEnabled } = req.body;
+    if (providerId && !(await prisma.llmProvider.findUnique({ where: { id: providerId } }))) {
+      return res.status(400).json({ error: "Provider tidak ditemukan" });
+    }
     const agent = await prisma.agent.update({
       where: { id: agentId },
       data: {
@@ -512,6 +422,9 @@ app.put("/api/agents/:id", requireAuth, async (req, res) => {
         temperature: temperature !== undefined ? Number(temperature) : undefined,
         description,
         isActive,
+        // providerId: string = pakai provider, null/"" = kembali ke jalur lama, undefined = tidak diubah
+        providerId: providerId === undefined ? undefined : providerId || null,
+        toolsEnabled: toolsEnabled === undefined ? undefined : !!toolsEnabled,
       },
     });
     res.json(agent);
@@ -593,6 +506,9 @@ app.get("/api/channels/:id/messages", requireAuth, async (req, res) => {
   }
 });
 
+// Provider LLM, server MCP, jadwal cron, dan memori
+registerExtraRoutes(app, requireAuth);
+
 // SPA fallback - semua route web diarahkan ke index.html frontend
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api") || req.path.startsWith("/socket.io")) {
@@ -606,4 +522,5 @@ app.get("*", (req, res, next) => {
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`[AllBot Server] Siap berjalan di http://localhost:${PORT}`);
+  startScheduler(io).catch((err) => console.error("[Scheduler] gagal start:", err));
 });

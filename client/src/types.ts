@@ -38,6 +38,8 @@ export interface Agent {
   model: string;
   temperature: number;
   isActive: boolean;
+  providerId?: string | null;
+  toolsEnabled?: boolean;
   channels?: { channelId: string }[];
 }
 
@@ -61,4 +63,55 @@ export interface Message {
   agentId?: string;
   content: string;
   createdAt: string;
+}
+
+export interface LlmProvider {
+  id: string;
+  name: string;
+  kind: string;
+  baseUrl: string;
+  defaultModel?: string | null;
+  hasKey: boolean;
+  apiKeyMasked: string;
+}
+
+export interface ProviderPreset {
+  kind: string;
+  name: string;
+  baseUrl: string;
+  defaultModel: string;
+}
+
+export interface McpServerInfo {
+  id: string;
+  name: string;
+  transport: string;
+  url?: string | null;
+  command?: string | null;
+  enabled: boolean;
+  headerKeys: string[];
+}
+
+export interface ScheduledTaskInfo {
+  id: string;
+  name: string;
+  cron: string;
+  timezone: string;
+  prompt: string;
+  channelId: string;
+  agentId?: string | null;
+  enabled: boolean;
+  lastRunAt?: string | null;
+  lastStatus?: string | null;
+  lastError?: string | null;
+  channel?: { name: string };
+  agent?: { name: string } | null;
+}
+
+export interface MemoryItem {
+  id: string;
+  content: string;
+  agentId?: string | null;
+  createdAt: string;
+  agent?: { name: string } | null;
 }

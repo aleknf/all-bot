@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Channel, Agent, Message, WorkspaceLicense } from './types.js';
+import { Channel, Agent, Message, WorkspaceLicense, LlmProvider } from './types.js';
 import { Sidebar } from './components/Sidebar.js';
 import { ChatArea } from './components/ChatArea.js';
 import { AgentModal } from './components/AgentModal.js';
 import { ChannelModal } from './components/ChannelModal.js';
 import { LicenseModal } from './components/LicenseModal.js';
+import { AdvancedModal } from './components/AdvancedModal.js';
 import { LoginScreen } from './components/LoginScreen.js';
 import { initSocket, getDeviceId, disconnectSocket } from './socket.js';
 
@@ -31,6 +32,8 @@ export const App: React.FC = () => {
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [isChannelModalOpen, setIsChannelModalOpen] = useState(false);
   const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
+  const [isAdvancedModalOpen, setIsAdvancedModalOpen] = useState(false);
+  const [providers, setProviders] = useState<LlmProvider[]>([]);
 
   const deviceId = getDeviceId();
 
@@ -120,11 +123,14 @@ export const App: React.FC = () => {
 
   const fetchInitialData = async () => {
     try {
-      const [chRes, agRes, licRes] = await Promise.all([
+      const [chRes, agRes, licRes, prRes] = await Promise.all([
         authFetch('/api/channels'),
         authFetch('/api/agents'),
         authFetch('/api/license'),
+        authFetch('/api/providers'),
       ]);
+
+      if (prRes.ok) setProviders(await prRes.json());
 
       if (chRes.ok) {
         const chData: Channel[] = await chRes.json();
@@ -274,6 +280,7 @@ export const App: React.FC = () => {
           setIsAgentModalOpen(true);
         }}
         onOpenLicenseModal={() => setIsLicenseModalOpen(true)}
+        onOpenAdvancedModal={() => setIsAdvancedModalOpen(true)}
         onEditAgent={(agent) => {
           setEditingAgent(agent);
           setIsAgentModalOpen(true);
@@ -299,6 +306,8 @@ export const App: React.FC = () => {
       <AgentModal
         isOpen={isAgentModalOpen}
         agent={editingAgent}
+        providers={providers}
+        authFetch={authFetch}
         onClose={() => setIsAgentModalOpen(false)}
         onSave={handleSaveAgent}
         onDelete={handleDeleteAgent}
@@ -309,6 +318,16 @@ export const App: React.FC = () => {
         agents={agents}
         onClose={() => setIsChannelModalOpen(false)}
         onSave={handleSaveChannel}
+      />
+
+      <AdvancedModal
+        isOpen={isAdvancedModalOpen}
+        authFetch={authFetch}
+        isAdmin={currentUser?.role === 'ADMIN'}
+        channels={channels}
+        agents={agents}
+        onClose={() => setIsAdvancedModalOpen(false)}
+        onChanged={fetchInitialData}
       />
 
       <LicenseModal

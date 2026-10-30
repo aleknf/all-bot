@@ -30,6 +30,76 @@ model WorkspaceLicense {
   users            User[]
   agents           Agent[]
   channels         Channel[]
+  providers        LlmProvider[]
+  mcpServers       McpServer[]
+  memories         Memory[]
+  schedules        ScheduledTask[]
+}
+
+// Provider LLM kompatibel OpenAI (Nous Portal, OpenRouter, OpenAI, atau endpoint kustom)
+model LlmProvider {
+  id           String           @id @default(uuid())
+  licenseId    String
+  name         String
+  kind         String           @default("custom") // nous, openrouter, openai, custom
+  baseUrl      String
+  apiKey       String?
+  defaultModel String?
+  createdAt    DateTime         @default(now())
+
+  license      WorkspaceLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  agents       Agent[]
+}
+
+model McpServer {
+  id        String           @id @default(uuid())
+  licenseId String
+  name      String
+  transport String           @default("http") // http, stdio
+  url       String?
+  headers   String?          // JSON object
+  command   String?
+  args      String?          // JSON array
+  enabled   Boolean          @default(true)
+  createdAt DateTime         @default(now())
+
+  license   WorkspaceLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+
+  @@unique([licenseId, name])
+}
+
+// Memori jangka panjang lintas sesi. agentId null = dibagi ke semua agen.
+model Memory {
+  id        String           @id @default(uuid())
+  licenseId String
+  agentId   String?
+  content   String
+  createdAt DateTime         @default(now())
+
+  license   WorkspaceLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  agent     Agent?           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([licenseId, createdAt])
+}
+
+model ScheduledTask {
+  id         String           @id @default(uuid())
+  licenseId  String
+  name       String
+  cron       String
+  timezone   String           @default("Asia/Jakarta")
+  prompt     String
+  channelId  String
+  agentId    String?
+  enabled    Boolean          @default(true)
+  lastRunAt  DateTime?
+  lastStatus String?          // OK, ERROR
+  lastError  String?
+  createdAt  DateTime         @default(now())
+
+  license    WorkspaceLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  channel    Channel          @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  agent      Agent?           @relation(fields: [agentId], references: [id], onDelete: SetNull)
 }
 
 model DeviceSession {
@@ -73,11 +143,16 @@ model Agent {
   model        String           @default("gemini-2.5-flash")
   temperature  Float            @default(0.7)
   isActive     Boolean          @default(true)
+  providerId   String?          // null = jalur lama (Claude/Gemini web session, API key lisensi)
+  toolsEnabled Boolean          @default(false)
   createdAt    DateTime         @default(now())
 
   license      WorkspaceLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  provider     LlmProvider?     @relation(fields: [providerId], references: [id], onDelete: SetNull)
   channels     ChannelAgent[]
   messages     Message[]
+  memories     Memory[]
+  schedules    ScheduledTask[]
 }
 
 model Channel {
@@ -93,6 +168,7 @@ model Channel {
   license       WorkspaceLicense @relation(fields: [licenseId], references: [id], onDelete: Cascade)
   assignedAgents ChannelAgent[]
   messages      Message[]
+  schedules     ScheduledTask[]
 }
 
 model ChannelAgent {
