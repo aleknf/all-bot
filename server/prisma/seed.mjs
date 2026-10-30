@@ -77,7 +77,7 @@ async function main() {
       name: "Research & Analyst Bot",
       description: "Spesialis riset mendalam, perbandingan arsitektur, dan analisis data.",
       systemPrompt: "Anda adalah Research & Analyst Bot. Analisis setiap topik secara mendalam.",
-      model: "claude-3-5-sonnet",
+      model: "claude-sonnet-5-5",
       temperature: 0.5,
     },
   });

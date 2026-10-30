@@ -22,7 +22,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
   onDelete,
 }) => {
   const [name, setName] = useState('');
-  const [model, setModel] = useState('gemini-2.5-flash');
+  const [model, setModel] = useState('claude-sonnet-5-5');
   const [temperature, setTemperature] = useState(0.7);
   const [description, setDescription] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -43,7 +43,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
       setToolsEnabled(!!agent.toolsEnabled);
     } else {
       setName('');
-      setModel('gemini-2.5-flash');
+      setModel('claude-sonnet-5-5');
       setTemperature(0.7);
       setDescription('');
       setSystemPrompt('Anda adalah asisten cerdas yang bertugas...');
@@ -81,7 +81,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
     if (p?.defaultModel) setModel(p.defaultModel);
     if (!id) {
       setToolsEnabled(false);
-      setModel('gemini-2.5-flash');
+      setModel('claude-sonnet-5-5');
     }
   };
 
@@ -196,8 +196,11 @@ export const AgentModal: React.FC<AgentModalProps> = ({
                   onChange={(e) => setModel(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-emerald-500"
                 >
+                  <option value="claude-opus-5-5">Claude Opus 5.5</option>
+                  <option value="claude-sonnet-5-5">Claude Sonnet 5.5</option>
+                  <option value="claude-haiku-5-5">Claude Haiku 5.5</option>
+                  <option value="gemini-3.8-flash">Google Gemini 3.8 Flash</option>
                   <option value="gemini-2.5-flash">Google Gemini 2.5 Flash</option>
-                  <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
                   <option value="gpt-4o-mini">OpenAI GPT-4o Mini</option>
                   <option value="gpt-4o">OpenAI GPT-4o</option>
                 </select>

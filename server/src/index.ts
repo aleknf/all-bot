@@ -392,7 +392,7 @@ app.post("/api/agents", requireAuth, async (req, res) => {
         licenseId: license.id,
         name,
         systemPrompt,
-        model: model || "gemini-2.5-flash",
+        model: model || "claude-sonnet-5-5",
         temperature: temperature !== undefined ? Number(temperature) : 0.7,
         description,
         providerId: providerId || null,

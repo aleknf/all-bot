@@ -37,7 +37,16 @@ function cleanCookieValue(val: string, prefix?: string): string {
 // ----------------------------------------------------
 // 1. CLAUDE.AI WEB SESSION CLIENT (Cookie sessionKey)
 // ----------------------------------------------------
-async function callClaudeWebSession(rawSessionKey: string, prompt: string, systemPrompt?: string): Promise<string> {
+// Model Claude web terbaru; model milik agen dicoba lebih dulu bila berformat keluarga 5.x.
+const CLAUDE_WEB_FALLBACK_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-haiku-4-5-20251001"];
+const CLAUDE_WEB_MODEL_PATTERN = /^claude-(opus|sonnet|haiku|fable)-5-\d+$/;
+
+function claudeWebCandidates(agentModel?: string): string[] {
+  const preferred = agentModel && CLAUDE_WEB_MODEL_PATTERN.test(agentModel) ? [agentModel] : [];
+  return [...new Set([...preferred, ...CLAUDE_WEB_FALLBACK_MODELS])];
+}
+
+async function callClaudeWebSession(rawSessionKey: string, prompt: string, systemPrompt?: string, agentModel?: string): Promise<string> {
   const sessionKey = cleanCookieValue(rawSessionKey, "sessionKey");
   const fullPrompt = `${systemPrompt ? `[Instruksi Sistem: ${systemPrompt}]\n\n` : ""}${prompt}`;
 
@@ -83,9 +92,10 @@ async function callClaudeWebSession(rawSessionKey: string, prompt: string, syste
       throw new Error(`Gagal membuat percakapan claude.ai (${createConvRes.status})`);
     }
 
-    // 3. Model yang didukung pada web claude.ai (claude-sonnet-5-5, claude-sonnet-5, claude-haiku-4-5-20251001)
-    const candidateModels = ["claude-sonnet-5-5", "claude-sonnet-5", "claude-haiku-4-5-20251001"];
+    // 3. Coba model agen dulu, lalu model web lain yang lebih ringan bila gagal atau kena batas pemakaian
+    const candidateModels = claudeWebCandidates(agentModel);
     let lastStreamError = "";
+    let rateLimitedModels = 0;
 
     for (const modelToTry of candidateModels) {
       const streamRes = await fetch(`https://claude.ai/api/organizations/${orgId}/chat_conversations/${convUuid}/completion`, {
@@ -109,7 +119,9 @@ async function callClaudeWebSession(rawSessionKey: string, prompt: string, syste
       });
 
       if (streamRes.status === 429) {
-        throw new Error("Akun Claude Pro Anda sedang mencapai batas penggunaan (Rate Limited 429). Silakan tunggu beberapa menit.");
+        rateLimitedModels++;
+        lastStreamError = `Model ${modelToTry} kena batas pemakaian (429)`;
+        continue;
       }
 
       if (!streamRes.ok) {
@@ -138,6 +150,11 @@ async function callClaudeWebSession(rawSessionKey: string, prompt: string, syste
       }
     }
 
+    if (rateLimitedModels === candidateModels.length) {
+      throw new Error(
+        `Akun Claude Pro Anda sedang mencapai batas penggunaan (429) untuk semua model yang dicoba (${candidateModels.join(", ")}). Tunggu hingga kuota direset.`
+      );
+    }
     throw new Error(lastStreamError || "Respons streaming dari claude.ai kosong.");
   } catch (err: any) {
     console.error("[Claude Web Session Error]", err);
@@ -279,7 +296,7 @@ export async function generateAgentReply(
 
     if (sessionKey) {
       try {
-        return await callClaudeWebSession(sessionKey, userMessage, agent.systemPrompt);
+        return await callClaudeWebSession(sessionKey, userMessage, agent.systemPrompt, agent.model);
       } catch (err: any) {
         lastError = `Claude Web Session: ${err.message}`;
         console.warn("[Claude Web Session Failed]:", err.message);
@@ -323,19 +340,22 @@ export async function generateAgentReply(
           },
         ];
 
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents }),
-          }
-        );
+        const geminiModels = [...new Set([modelName.startsWith("gemini") ? agent.model : "", "gemini-2.5-flash"].filter(Boolean))];
+        for (const geminiModel of geminiModels) {
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${geminiKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ contents }),
+            }
+          );
 
-        if (res.ok) {
-          const data = await res.json();
-          const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) return text.trim();
+          if (res.ok) {
+            const data = await res.json();
+            const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (text) return text.trim();
+          }
         }
       } catch (err) {}
     }
@@ -362,7 +382,7 @@ export async function generateAgentReply(
             Authorization: `Bearer ${openAiKey}`,
           },
           body: JSON.stringify({
-            model: "gpt-4o-mini",
+            model: agent.model.toLowerCase().startsWith("gpt") ? agent.model : "gpt-4o-mini",
             messages,
             temperature: agent.temperature || 0.7,
           }),
