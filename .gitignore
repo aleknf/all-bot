@@ -17,6 +17,9 @@ server/.env
 server/prisma/dev.db
 server/prisma/dev.db-journal
 
+# OpenSpec (spesifikasi disimpan di vault Obsidian, bukan di repo)
+openspec/
+
 # OS & Logs
 .DS_Store
 *.log
