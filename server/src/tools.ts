@@ -27,11 +27,38 @@ export interface ToolDef {
 // ----------------------------------------------------
 // SSRF guard untuk web_fetch (URL berasal dari LLM, jadi tidak dipercaya)
 // ----------------------------------------------------
+// Pecah IPv6 menjadi 8 kelompok 16-bit (mendukung "::" dan ekor IPv4 bertitik); null bila tidak valid.
+function parseIPv6(ip: string): number[] | null {
+  let text = ip.split("%")[0].toLowerCase();
+  const tail = text.match(/(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (tail) {
+    const [a, b, c, d] = tail.slice(1).map(Number);
+    if ([a, b, c, d].some((n) => n > 255)) return null;
+    text = text.slice(0, tail.index) + ((a << 8) | b).toString(16) + ":" + ((c << 8) | d).toString(16);
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const rest = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const fill = 8 - head.length - rest.length;
+  if (halves.length === 2 ? fill < 1 : fill !== 0) return null;
+  const groups = [...head, ...Array(halves.length === 2 ? fill : 0).fill("0"), ...rest].map((g) => parseInt(g, 16));
+  return groups.length === 8 && groups.every((g) => g >= 0 && g <= 0xffff) ? groups : null;
+}
+
 function isPrivateIp(ip: string): boolean {
   if (net.isIPv6(ip)) {
     const lower = ip.toLowerCase();
-    const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPrivateIp(mapped[1]);
+    // IPv4 yang tertanam di IPv6 (mapped ::ffff:a.b.c.d / ::ffff:7f00:1, compatible ::a.b.c.d, NAT64 64:ff9b::/96, 6to4 2002::/16):
+    // parser URL menormalkan bentuk bertitik ke heksadesimal, jadi hitung ulang alamat IPv4-nya.
+    const g = parseIPv6(lower);
+    if (!g) return true;
+    const v4 = (hi: number, lo: number) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+    const zeros5 = g.slice(0, 5).every((x) => x === 0);
+    if (zeros5 && g[5] === 0xffff) return isPrivateIp(v4(g[6], g[7]));
+    if (zeros5 && g[5] === 0 && !(g[6] === 0 && g[7] <= 1)) return isPrivateIp(v4(g[6], g[7]));
+    if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0)) return isPrivateIp(v4(g[6], g[7]));
+    if (g[0] === 0x2002) return isPrivateIp(v4(g[1], g[2]));
     return (
       lower === "::" ||
       lower === "::1" ||
