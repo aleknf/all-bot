@@ -4,10 +4,14 @@ import { providerHeaders, providerUrl } from "./llm.js";
 import { forgetMcpServer, stdioAllowed, testMcpServer } from "./mcp.js";
 import { runTaskNow, scheduleTask, unschedule, validateCron } from "./scheduler.js";
 import { saveMemory } from "./memory.js";
+import { CLAUDE_CLI_MODELS, runClaudeCli } from "./claudeCli.js";
 
 const MAX_SCHEDULES = 50;
 
+const CLI_BASE_URL = "cli://claude";
+
 const PROVIDER_PRESETS = [
+  { kind: "claude-cli", name: "Claude CLI (langganan)", baseUrl: CLI_BASE_URL, defaultModel: "claude-sonnet-5-5" },
   { kind: "nous", name: "Nous Portal", baseUrl: "https://inference-api.nousresearch.com/v1", defaultModel: "Hermes-4-70B" },
   { kind: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", defaultModel: "openai/gpt-4o-mini" },
   { kind: "openai", name: "OpenAI", baseUrl: "https://api.openai.com/v1", defaultModel: "gpt-4o-mini" },
@@ -90,7 +94,10 @@ export function registerExtraRoutes(app: Express, requireAuth: Middleware) {
     try {
       const { name, kind, baseUrl, apiKey, defaultModel } = req.body;
       if (!name?.trim()) return res.status(400).json({ error: "Nama provider wajib diisi" });
-      if (!isHttpUrl(baseUrl)) return res.status(400).json({ error: "Base URL harus diawali http:// atau https://" });
+      const providerKind = kind === "claude-cli" ? "claude-cli" : kind;
+      if (providerKind !== "claude-cli" && !isHttpUrl(baseUrl)) {
+        return res.status(400).json({ error: "Base URL harus diawali http:// atau https://" });
+      }
       const license = await getLicense();
       if (!license) return res.status(400).json({ error: "Lisensi tidak ditemukan" });
 
@@ -99,8 +106,8 @@ export function registerExtraRoutes(app: Express, requireAuth: Middleware) {
           licenseId: license.id,
           name: name.trim(),
           kind: PROVIDER_PRESETS.some((p) => p.kind === kind) ? kind : "custom",
-          baseUrl: baseUrl.trim(),
-          apiKey: apiKey || null,
+          baseUrl: providerKind === "claude-cli" ? CLI_BASE_URL : baseUrl.trim(),
+          apiKey: providerKind === "claude-cli" ? null : apiKey || null,
           defaultModel: defaultModel?.trim() || null,
         },
       });
@@ -114,7 +121,7 @@ export function registerExtraRoutes(app: Express, requireAuth: Middleware) {
   app.put("/api/providers/:id", requireAuth, requireAdmin, async (req, res) => {
     try {
       const { name, kind, baseUrl, apiKey, defaultModel } = req.body;
-      if (baseUrl !== undefined && !isHttpUrl(baseUrl)) {
+      if (baseUrl !== undefined && baseUrl !== CLI_BASE_URL && !isHttpUrl(baseUrl)) {
         return res.status(400).json({ error: "Base URL harus diawali http:// atau https://" });
       }
       const updated = await prisma.llmProvider.update({
@@ -149,6 +156,18 @@ export function registerExtraRoutes(app: Express, requireAuth: Middleware) {
     try {
       const provider = await prisma.llmProvider.findUnique({ where: { id: req.params.id as string } });
       if (!provider) return res.status(404).json({ error: "Provider tidak ditemukan" });
+
+      if (provider.kind === "claude-cli") {
+        // ?probe=1 (tombol "Tes") menjalankan satu pesan kecil untuk memastikan CLI dan token bekerja
+        if (req.query.probe) {
+          try {
+            await runClaudeCli({ model: "claude-haiku-5-5", system: "Balas hanya dengan kata OK.", history: [], userMessage: "tes" });
+          } catch (err: any) {
+            return res.status(502).json({ error: err.message || "Claude CLI gagal" });
+          }
+        }
+        return res.json(CLAUDE_CLI_MODELS);
+      }
 
       const r = await fetch(providerUrl(provider, "/models"), {
         headers: providerHeaders(provider),

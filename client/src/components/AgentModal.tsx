@@ -55,6 +55,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
   }, [agent, isOpen]);
 
   const selectedProvider = providers.find((p) => p.id === providerId);
+  const toolsUnsupported = selectedProvider?.kind === 'claude-cli';
 
   const loadModels = async () => {
     if (!providerId) return;
@@ -100,7 +101,7 @@ export const AgentModal: React.FC<AgentModalProps> = ({
         description: description.trim(),
         systemPrompt: systemPrompt.trim(),
         providerId: providerId || null,
-        toolsEnabled: providerId ? toolsEnabled : false,
+        toolsEnabled: providerId && !toolsUnsupported ? toolsEnabled : false,
       });
       onClose();
     } finally {
@@ -223,11 +224,11 @@ export const AgentModal: React.FC<AgentModalProps> = ({
             </div>
           </div>
 
-          <label className={`flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 ${providerId ? 'cursor-pointer' : 'opacity-50'}`}>
+          <label className={`flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950 p-3 ${providerId && !toolsUnsupported ? 'cursor-pointer' : 'opacity-50'}`}>
             <input
               type="checkbox"
-              disabled={!providerId}
-              checked={toolsEnabled}
+              disabled={!providerId || toolsUnsupported}
+              checked={toolsEnabled && !toolsUnsupported}
               onChange={(e) => setToolsEnabled(e.target.checked)}
               className="mt-0.5 accent-emerald-500"
             />
@@ -236,8 +237,9 @@ export const AgentModal: React.FC<AgentModalProps> = ({
                 <Wrench className="w-3.5 h-3.5 text-emerald-400" /> Aktifkan tool, subagen paralel &amp; MCP
               </span>
               <span className="block text-[11px] text-slate-500 mt-0.5">
-                Waktu, kalkulator, web fetch, memori, subagen paralel, dan tool dari server MCP. Butuh provider di atas dan model
-                yang mendukung function calling.
+                {toolsUnsupported
+                  ? 'Provider Claude CLI hanya teks masuk-keluar; tool bawaan AllBot tidak tersedia (memori tetap ikut di prompt).'
+                  : 'Waktu, kalkulator, web fetch, memori, subagen paralel, dan tool dari server MCP. Butuh provider di atas dan model yang mendukung function calling.'}
               </span>
             </span>
           </label>

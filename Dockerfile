@@ -37,8 +37,11 @@ ENV DATABASE_URL="file:/app/data/allbot.db"
 ENV CLIENT_DIST_PATH="/app/client/dist"
 ENV NODE_OPTIONS="--max-http-header-size=128000"
 
-# Install openssl for Prisma runtime on Alpine
-RUN apk add --no-cache openssl
+# Install openssl for Prisma runtime on Alpine, plus dependensi Claude Code CLI (jalur provider "Claude CLI")
+RUN apk add --no-cache openssl libgcc libstdc++ ripgrep \
+    && npm install -g @anthropic-ai/claude-code@2.1.314
+ENV USE_BUILTIN_RIPGREP=0
+ENV DISABLE_AUTOUPDATER=1
 
 # Siapkan direktori data persisten untuk SQLite
 RUN mkdir -p /app/data

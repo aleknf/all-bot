@@ -100,7 +100,7 @@ const ProvidersTab: React.FC<{ authFetch: AuthFetch; isAdmin: boolean; onChanged
   const test = async (p: LlmProvider) => {
     setErr('');
     setMsg(`Menguji ${p.name}...`);
-    const res = await authFetch(`/api/providers/${p.id}/models`);
+    const res = await authFetch(`/api/providers/${p.id}/models?probe=1`);
     if (!res.ok) {
       setMsg('');
       return setErr(await readError(res, 'Koneksi gagal'));

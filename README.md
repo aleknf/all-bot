@@ -29,6 +29,7 @@ Aplikasi web terpadu untuk mengelola berbagai agen AI dan channel obrolan, denga
    - **MCP**: sambungkan server MCP remote (HTTP/SSE); tool-nya otomatis tersedia untuk agen dengan tool aktif. Transport `stdio` mati secara default (set `ALLOW_MCP_STDIO=true` bila memang perlu).
 
 6. **Provider LLM Fleksibel**: Nous Portal, OpenRouter, OpenAI, atau endpoint OpenAI-compatible kustom (mis. Ollama). Provider dan nama model dipilih per agen dari UI, tanpa mengubah kode. Jalur lama (cookie Claude/Gemini web) tetap berjalan untuk agen tanpa provider.
+   - **Claude CLI (langganan)**: menjalankan Claude Code CLI resmi di server dengan token dari `claude setup-token` (`CLAUDE_CODE_OAUTH_TOKEN` di `.env`). Semua tool CLI dimatikan; cepat dan tanpa pembatasan laju cookie claude.ai.
 
 7. **Scheduler Cron**: jalankan prompt otomatis (cron 5 kolom + zona waktu), hasilnya diposting ke channel.
 

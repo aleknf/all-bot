@@ -5,6 +5,7 @@ import { runChatLoop, type ChatMessage } from "./llm.js";
 import { getBuiltinTools, type SubagentTask, type ToolContext, type ToolDef } from "./tools.js";
 import { getMcpTools } from "./mcp.js";
 import { memoryPromptBlock } from "./memory.js";
+import { runClaudeCli } from "./claudeCli.js";
 
 export type AgentWithProvider = Agent & { provider: LlmProvider | null };
 
@@ -53,6 +54,12 @@ async function runWithProvider(
   systemPrompt: string
 ): Promise<string> {
   const provider = agent.provider!;
+
+  // Claude Code CLI resmi (langganan Anda): teks masuk, teks keluar. Tool bawaan AllBot tidak dipakai di jalur ini.
+  if (provider.kind === "claude-cli") {
+    return runClaudeCli({ model: agent.model || provider.defaultModel, system: systemPrompt, history, userMessage });
+  }
+
   const model = agent.model || provider.defaultModel;
   if (!model) throw new Error("Model belum dipilih untuk agen ini dan provider tidak punya model default.");
 

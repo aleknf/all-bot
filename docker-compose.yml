@@ -17,6 +17,8 @@ services:
       - AUTH_SECRET=${AUTH_SECRET:?AUTH_SECRET wajib diisi}
       # Opsional: password admin awal. Kosong = dibuat acak dan dicetak di log saat seed pertama
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # Token langganan Claude untuk provider "Claude CLI": jalankan `claude setup-token` di Mac, tempel ke .env VPS
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - NODE_OPTIONS=--max-http-header-size=128000
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
