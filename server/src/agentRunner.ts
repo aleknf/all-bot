@@ -121,9 +121,13 @@ export async function runAgent(
   agent: AgentWithProvider,
   history: Array<{ senderType: string; content: string }>,
   userMessage: string,
-  creds?: WebCredentials
+  creds?: WebCredentials,
+  channelInstructions?: string | null
 ): Promise<string> {
-  const systemPrompt = agent.systemPrompt + (await memoryPromptBlock(agent.licenseId, agent.id));
+  const systemPrompt =
+    agent.systemPrompt +
+    (channelInstructions?.trim() ? `\n\n[Instruksi channel]\n${channelInstructions.trim()}` : "") +
+    (await memoryPromptBlock(agent.licenseId, agent.id));
 
   if (agent.provider) {
     try {

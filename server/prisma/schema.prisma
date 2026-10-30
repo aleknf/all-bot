@@ -161,6 +161,7 @@ model Channel {
   name          String
   slug          String           @unique
   description   String?
+  instructions  String?          // konteks/aturan channel, ditambahkan ke system prompt agen
   type          String           @default("INTERNAL_ROOM") // INTERNAL_ROOM, PUBLIC_LINK, DIRECT_AGENT
   autoReplyMode String           @default("ALWAYS")        // ALWAYS, MENTION_ONLY, MANUAL
   createdAt     DateTime         @default(now())

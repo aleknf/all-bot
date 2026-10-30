@@ -463,7 +463,7 @@ app.get("/api/channels", requireAuth, async (req, res) => {
 
 app.post("/api/channels", requireAuth, async (req, res) => {
   try {
-    const { name, slug, description, type, autoReplyMode, agentIds } = req.body;
+    const { name, slug, description, instructions, type, autoReplyMode, agentIds } = req.body;
     const license = await prisma.workspaceLicense.findFirst();
     if (!license) return res.status(400).json({ error: "Lisensi tidak ditemukan" });
 
@@ -475,6 +475,7 @@ app.post("/api/channels", requireAuth, async (req, res) => {
         name,
         slug: channelSlug,
         description,
+        instructions: instructions?.trim() || null,
         type: type || "INTERNAL_ROOM",
         autoReplyMode: autoReplyMode || "ALWAYS",
         assignedAgents: agentIds && agentIds.length > 0 ? {

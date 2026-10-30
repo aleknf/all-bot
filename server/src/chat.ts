@@ -36,7 +36,8 @@ export async function handleChannelMessage(io: Server, input: ChannelMessageInpu
   const channel = await prisma.channel.findUnique({
     where: { id: channelId },
     include: {
-      assignedAgents: { include: { agent: { include: { provider: true } } } },
+      // Urut berdasarkan agen tertua: agen pertama (lead) menjawab bila tidak ada mention.
+      assignedAgents: { orderBy: { agent: { createdAt: "asc" } }, include: { agent: { include: { provider: true } } } },
       messages: { orderBy: { createdAt: "desc" }, take: 20 },
     },
   });
@@ -77,7 +78,7 @@ export async function handleChannelMessage(io: Server, input: ChannelMessageInpu
       geminiSecure1PSIDTS: license?.geminiSecure1PSIDTS,
       geminiApiKey: license?.geminiApiKey,
       openaiApiKey: license?.openaiApiKey,
-    });
+    }, channel.instructions);
 
     const botMessage = await prisma.message.create({
       data: {
